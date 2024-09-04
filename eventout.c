@@ -247,10 +247,6 @@ static bool is_setting_available (const setting_detail_t *setting)
     return idx < n_events;
 }
 
-static const setting_group_detail_t macro_groups [] = {
-    { Group_Root, Group_UserSettings, "Macros"}
-};
-
 static const setting_detail_t event_settings[] = {
     { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, EVENT_TRIGGERS, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
     { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS }
@@ -302,8 +298,6 @@ static bool event_settings_iterator (const setting_detail_t *setting, setting_ou
 }
 
 static setting_details_t setting_details = {
-    .groups = macro_groups,
-    .n_groups = sizeof(macro_groups) / sizeof(setting_group_detail_t),
     .settings = event_settings,
     .n_settings = sizeof(event_settings) / sizeof(setting_detail_t),
 #ifndef NO_SETTINGS_DESCRIPTIONS
