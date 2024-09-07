@@ -206,7 +206,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(hal.rgb0.out
                        ? "RGB LED strips (M150)"
-                       : "RGB LED strips (N/A)", "0.03");
+                       : "RGB LED strips (N/A)", "0.04");
 }
 
 void rgb_led_init (void)
@@ -219,8 +219,7 @@ void rgb_led_init (void)
         hal.user_mcode.validate = mcode_validate;
         hal.user_mcode.execute = mcode_execute;
 
-        if((is_neopixels = rgb_is_neopixels(&hal.rgb0)))
-            rgb_led_settings_register();
+        is_neopixels = rgb_led_settings_register();
     }
 
     on_report_options = grbl.on_report_options;

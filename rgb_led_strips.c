@@ -22,11 +22,11 @@ static bool is_setting_available (const setting_detail_t *setting)
     switch(setting->id) {
 
         case Setting_RGB_StripLengt0:
-            available = rgb_is_neopixels(&hal.rgb0);
+            available = hal.rgb0.flags.is_strip;
             break;
 
         case Setting_RGB_StripLengt1:
-            available = rgb_is_neopixels(&hal.rgb1);
+            available = hal.rgb1.flags.is_strip;
             break;
 
         default:
@@ -84,12 +84,12 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(led_enabled
                        ? "RGB LED strips"
-                       : "RGB LED strips (N/A)", "0.01");
+                       : "RGB LED strips (N/A)", "0.02");
 }
 
 void rgb_led_init (void)
 {
-    if((led_enabled = rgb_is_neopixels(&hal.rgb0) || rgb_is_neopixels(&hal.rgb1)))
+    if((led_enabled = hal.rgb0.flags.is_strip || hal.rgb1.flags.is_strip))
         settings_register(&setting_details);
 
     on_report_options = grbl.on_report_options;
@@ -98,9 +98,14 @@ void rgb_led_init (void)
 
 #else
 
-static inline void rgb_led_settings_register (void)
+static inline bool rgb_led_settings_register (void)
 {
-    settings_register(&setting_details);
+	bool ok;
+
+	if((ok = hal.rgb0.flags.is_strip || hal.rgb1.flags.is_strip))
+		settings_register(&setting_details);
+
+    return ok;
 }
 
 #endif
