@@ -60,10 +60,13 @@
 #define BLTOUCH_DEPLOY_DELAY        750
 #endif
 #ifndef BLTOUCH_STOW_DELAY
-  #define BLTOUCH_STOW_DELAY        750
+#define BLTOUCH_STOW_DELAY          750
 #endif
 #ifndef BLTOUCH_RESET_DELAY
 #define BLTOUCH_RESET_DELAY         500
+#endif
+#ifndef BLTOUCH_SELFTEST_TIME
+#define BLTOUCH_SELFTEST_TIME     12000
 #endif
 
 typedef enum {
@@ -83,7 +86,14 @@ static on_probe_start_ptr on_probe_start;
 static on_probe_completed_ptr on_probe_completed;
 static on_report_options_ptr on_report_options;
 static user_mcode_ptrs_t user_mcode;
-static bool high_speed = false;
+static bool high_speed = false, selftest = false;
+
+static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms);
+
+static void selftest_done (void *data)
+{
+    bltouch_cmd(BLTouch_Stow, BLTOUCH_STOW_DELAY);
+}
 
 static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms)
 {
@@ -96,19 +106,25 @@ static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms)
     debug_print("Command bltouch: {%d}", cmd);
 #endif
 
+    if(selftest)
+        task_delete(selftest_done, NULL);
+
+    selftest = cmd == BLTouch_Selftest;
+
     if((float)cmd != (servo.get_value ? servo.get_value(&servo) : current_angle)) {
 
         hal.port.analog_out(servo_port, current_angle = (float)cmd);
-
-        delay_sec(max((float)ms / 1e3f, (float)BLTOUCH_MIN_DELAY / 1e3f), DelayMode_SysSuspend);
+        if(ms)
+            delay_sec(max((float)ms / 1e3f, (float)BLTOUCH_MIN_DELAY / 1e3f), DelayMode_SysSuspend);
     }
 
     return true;
 }
 
-static status_code_t bltoutch_selftest (sys_state_t state, char *args)
+static status_code_t bltouch_selftest (sys_state_t state, char *args)
 {
-    // NOOP for now
+    if(bltouch_cmd(BLTouch_Selftest, 0))
+        task_add_delayed(selftest_done, NULL, BLTOUCH_SELFTEST_TIME);
 
     return Status_OK;
 }
@@ -212,7 +228,7 @@ static void onProbeCompleted (void)
 }
 
 const sys_command_t bltouch_command_list[] = {
-    {"BLTEST", bltoutch_selftest, {}, { .str = "perform BLTouch probe self-test" } },
+    {"BLTEST", bltouch_selftest, {}, { .str = "perform BLTouch probe self-test" } },
 };
 
 static sys_commands_t bltouch_commands = {
@@ -225,7 +241,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.02");
+        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.03");
 }
 
 static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
