@@ -40,11 +40,11 @@ static bool is_neopixels;
 static user_mcode_ptrs_t user_mcode;
 static on_report_options_ptr on_report_options;
 
-static user_mcode_t mcode_check (user_mcode_t mcode)
+static user_mcode_type_t mcode_check (user_mcode_t mcode)
 {
     return mcode == RGB_WriteLEDs
-                     ? mcode
-                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Ignore);
+                     ? UserMCode_NoValueWords
+                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Unsupported);
 }
 
 static status_code_t parameter_validate (float *value)
@@ -60,7 +60,7 @@ static status_code_t parameter_validate (float *value)
     return state;
 }
 
-static status_code_t mcode_validate (parser_block_t *gc_block, parameter_words_t *deprecated)
+static status_code_t mcode_validate (parser_block_t *gc_block)
 {
     status_code_t state = Status_OK;
 
@@ -109,7 +109,7 @@ static status_code_t mcode_validate (parser_block_t *gc_block, parameter_words_t
             break;
     }
 
-    return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block, deprecated) : state;
+    return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block) : state;
 }
 
 static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
@@ -206,18 +206,18 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(hal.rgb0.out
                        ? "RGB LED strips (M150)"
-                       : "RGB LED strips (N/A)", "0.04");
+                       : "RGB LED strips (N/A)", "0.05");
 }
 
 void rgb_led_init (void)
 {
     if(hal.rgb0.out) {
 
-        memcpy(&user_mcode, &hal.user_mcode, sizeof(user_mcode_ptrs_t));
+        memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
 
-        hal.user_mcode.check = mcode_check;
-        hal.user_mcode.validate = mcode_validate;
-        hal.user_mcode.execute = mcode_execute;
+        grbl.user_mcode.check = mcode_check;
+        grbl.user_mcode.validate = mcode_validate;
+        grbl.user_mcode.execute = mcode_execute;
 
         is_neopixels = rgb_led_settings_register();
     }

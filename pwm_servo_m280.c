@@ -8,7 +8,7 @@
   https://github.com/wakass/grlbhal_servo
 
   Usage:
-    M280[P<id>][S[<position>]]
+    M280[P<id>][S<position>]
 
   If no words are specified all servo positions are reported.
   If no position is specified the specific servo position is returned.
@@ -84,77 +84,62 @@ static float pwm_servo_get_angle(uint8_t servo)
     return servo < n_servos ? (servos[servo].xport.get_value ? servos[servo].xport.get_value(&servos[servo].xport) : servos[servo].angle) : -1.0f;
 }
 
-static user_mcode_t mcode_check (user_mcode_t mcode)
+static user_mcode_type_t mcode_check (user_mcode_t mcode)
 {
     return mcode == PWMServo_SetPosition
-                     ? mcode
-                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Ignore);
+                     ? UserMCode_Normal
+                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Unsupported);
 }
 
-static status_code_t mcode_validate (parser_block_t *gc_block, parameter_words_t *deprecated)
+static status_code_t mcode_validate (parser_block_t *gc_block)
 {
     status_code_t state = Status_OK;
 
-    switch(gc_block->user_mcode) {
-        // M280 P<index> S<pos> 
-        case PWMServo_SetPosition:
-        //Servo index
-            if(gc_block->words.p && (isnanf(gc_block->values.p) || !isintf(gc_block->values.p)))
+    if(gc_block->user_mcode == PWMServo_SetPosition) {
+        if(gc_block->words.p) {
+            if(!isintf(gc_block->values.p))
                 state = Status_BadNumberFormat;
-            if(gc_block->words.p && (gc_block->values.p >= n_servos))
+            else if(gc_block->words.p && ((uint8_t)gc_block->values.p >= n_servos))
                 state = Status_GcodeValueOutOfRange;
-            if(gc_block->words.s && (gc_block->values.s < servos[(uint32_t)gc_block->values.p].min_angle || gc_block->values.s > servos[(uint32_t)gc_block->values.p].max_angle))
-                state = Status_GcodeValueOutOfRange;
-            gc_block->words.s = gc_block->words.p = Off;
-            break;
+        }
+        if(gc_block->words.s && (gc_block->values.s < servos[(uint32_t)gc_block->values.p].min_angle || gc_block->values.s > servos[(uint32_t)gc_block->values.p].max_angle))
+            state = Status_GcodeValueOutOfRange;
+        gc_block->words.s = gc_block->words.p = Off;
+    } else
+        state = Status_Unhandled;
 
-        default:
-            state = Status_Unhandled;
-            break;
-    }
-
-    return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block, deprecated) : state;
+    return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block) : state;
 }
 
 static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
 {
-    bool handled = true;
+    if(gc_block->user_mcode == PWMServo_SetPosition) {
 
-    if (state != STATE_CHECK_MODE)
-      switch(gc_block->user_mcode) {
+        uint8_t servo = (uint8_t)gc_block->values.p;
 
-        // M280 P<index> S<pos> 
-         case PWMServo_SetPosition:; // Servo mode
-            uint8_t servo = (uint8_t)gc_block->values.p;
-            if(gc_block->words.s) {
+        if(gc_block->words.s) {
 #ifdef DEBUGOUT
-                debug_print("Setting servo position");
+            debug_print("Setting servo position");
 #endif
-                pwm_servo_set_angle(servo, gc_block->values.s);
-            } else {
-                //Reads the position/pwm
-                float value = pwm_servo_get_angle(servo);
-                if (value >= 0.0f) {
-                    char buf[20];
+            pwm_servo_set_angle(servo, gc_block->values.s);
+        } else {
+            //Reads the position/pwm
+            float value = pwm_servo_get_angle(servo);
+            if (value >= 0.0f) {
+                char buf[40];
 #ifdef DEBUGOUT
-                    debug_print("[Servo position: %5.2f degrees]",  value);
+                debug_print("[Servo position: %5.2f degrees]",  value);
 #endif
-                    // TODO: check Marlin format?
-                    strcpy(buf, "[Servo ");
-                    strcat(buf, uitoa(servo));
-                    strcat(buf, " position: ");
-                    strcat(buf, ftoa(value, 2));
-                    strcat(buf, " degrees]" ASCII_EOL);
-                    hal.stream.write(buf);
-                }
+                // TODO: check Marlin format?
+                strcpy(buf, "[Servo ");
+                strcat(buf, uitoa(servo));
+                strcat(buf, " position: ");
+                strcat(buf, ftoa(value, 2));
+                strcat(buf, " degrees]" ASCII_EOL);
+                hal.stream.write(buf);
             }
-            break;
-
-        default:
-            handled = false;
-            break;
-    }
-    if(!handled && user_mcode.execute)
+        }
+    } else if(user_mcode.execute)
         user_mcode.execute(state, gc_block);
 }
 
@@ -163,7 +148,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("PWM servo", "0.02");
+        report_plugin("PWM servo", "0.03");
 }
 
 static bool init_servo_default (servo_t* servo)
@@ -220,11 +205,11 @@ static bool servo_attach (xbar_t *pwm_pin, uint8_t port, void *data)
 
 void pwm_servo_init (void)
 {
-    memcpy(&user_mcode, &hal.user_mcode, sizeof(user_mcode_ptrs_t));
+    memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
 
-    hal.user_mcode.check = mcode_check;
-    hal.user_mcode.validate = mcode_validate;
-    hal.user_mcode.execute = mcode_execute;
+    grbl.user_mcode.check = mcode_check;
+    grbl.user_mcode.validate = mcode_validate;
+    grbl.user_mcode.execute = mcode_execute;
 
     ioports_enumerate(Port_Analog, Port_Output, (pin_cap_t){ .pwm = On, .claimable = On }, servo_attach, NULL);
 

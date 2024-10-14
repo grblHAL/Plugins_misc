@@ -129,14 +129,14 @@ static status_code_t bltouch_selftest (sys_state_t state, char *args)
     return Status_OK;
 }
 
-static user_mcode_t mcode_check (user_mcode_t mcode)
+static user_mcode_type_t mcode_check (user_mcode_t mcode)
 {
     return mcode == Probe_Deploy || mcode == Probe_Stow
-                     ? mcode
-                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Ignore);
+                     ? UserMCode_NoValueWords
+                     : (user_mcode.check ? user_mcode.check(mcode) : UserMCode_Unsupported);
 }
 
-static status_code_t mcode_validate (parser_block_t *gc_block, parameter_words_t *deprecated)
+static status_code_t mcode_validate (parser_block_t *gc_block)
 {
     status_code_t state = Status_OK;
 
@@ -173,15 +173,14 @@ static status_code_t mcode_validate (parser_block_t *gc_block, parameter_words_t
             break;
     }
 
-    return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block, deprecated) : state;
+    return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block) : state;
 }
 
 static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
 {
     bool handled = true;
 
-    if(state != STATE_CHECK_MODE)
-      switch(gc_block->user_mcode) {
+    switch(gc_block->user_mcode) {
 
          case Probe_Deploy:
              if(gc_block->words.s)
@@ -195,7 +194,7 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
                  bltouch_cmd(BLTouch_Deploy, BLTOUCH_DEPLOY_DELAY);
              break;
 
-         case Probe_Stow:;
+         case Probe_Stow:
              bltouch_cmd(BLTouch_Stow, BLTOUCH_STOW_DELAY);
              break;
 
@@ -241,7 +240,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.03");
+        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.04");
 }
 
 static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
@@ -272,11 +271,11 @@ void bltouch_init (void)
 
     if(ioports_enumerate(Port_Analog, Port_Output, (pin_cap_t){ .servo_pwm = On, .claimable = On }, claim_servo, NULL)) {
 
-        memcpy(&user_mcode, &hal.user_mcode, sizeof(user_mcode_ptrs_t));
+        memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
 
-        hal.user_mcode.check = mcode_check;
-        hal.user_mcode.validate = mcode_validate;
-        hal.user_mcode.execute = mcode_execute;
+        grbl.user_mcode.check = mcode_check;
+        grbl.user_mcode.validate = mcode_validate;
+        grbl.user_mcode.execute = mcode_execute;
 
         on_probe_start = grbl.on_probe_start;
         grbl.on_probe_start = onProbeStart;
