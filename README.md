@@ -1,5 +1,22 @@
 ## Assorted small plugins
 
+### ESP-AT
+
+*** Experimental ***
+
+Adds Telnet support via [ESP-AT](https://docs.espressif.com/projects/esp-at/en/latest/esp32/Get_Started/index.html) running on a supported ESP MCU.
+Allows senders to connect to the controller via WiFi.
+
+Dependencies:
+
+Driver and board support for a serial port \(UART\) that is not claimed by a different plugin.
+
+Configuration:
+
+Add/uncomment `#define ESP_AT_ENABLE 1` in _my_machine.h_.
+
+Adds many networking and WiFi settings for configuring mode \(Station, Access Point\), Telnet port, IP adress etc.
+
 ### RGB LED strips
 
 Adds one or two settings, `$536` and `$537`, for setting number of LEDs in NeoPixel/WS2812 LED strips.
@@ -121,4 +138,4 @@ Credits:
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 ---
-2024-09-04
+2024-10-30
