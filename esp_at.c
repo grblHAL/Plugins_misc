@@ -43,6 +43,11 @@
 #endif
 
 typedef struct {
+    uint8_t boot0;
+    uint8_t reset;
+} at_ports_t;
+
+typedef struct {
     ssid_t ssid;
     password_t password;
     hostname_t hostname;
@@ -63,10 +68,12 @@ typedef struct {
 
 static uint32_t timeout;
 static bool esp_at_running;
+static uint8_t boot0_port = 0xFF, reset_port = 0xFF;
 static char ip[16];
 static char gateway[16];
 static char netmask[16];
 static char mac[18];
+static char buf[130];
 static on_report_options_ptr on_report_options;
 static nvs_address_t nvs_address;
 static io_stream_t at_cmd_stream;
@@ -211,7 +218,7 @@ static bool is_done (char *s, bool *status)
 static bool send_command (char *command)
 {
     int16_t c;
-    char buf[50], *s = buf;
+    char *s = buf;
 
     *buf = '\0';
 
@@ -227,6 +234,9 @@ static bool send_command (char *command)
 
         if((c = at_cmd_stream.read()) != SERIAL_NO_DATA) {
 
+            if(s - buf >= sizeof(buf) - 1)
+                return false;
+
             if(c == ASCII_LF) {
 
                 *s = '\0';
@@ -236,7 +246,7 @@ static bool send_command (char *command)
                 }
                 else {
                     *buf = '\0';
-                    s=buf;
+                    s = buf;
                 }
             } else if(c != ASCII_CR)
                 *s++ = (char)c;
@@ -249,7 +259,6 @@ static bool send_command (char *command)
 static char *get_reply (char *command)
 {
     int16_t c;
-    static char buf[130];
     char *s = buf;
 
     *buf = '\0';
@@ -291,21 +300,29 @@ static char *get_reply (char *command)
 
 static void close_session (void *data)
 {
-    stream_disconnect(session_stream);
-    session_stream = NULL;
+    if(session_stream) {
+        stream_disconnect(session_stream);
+        session_stream = NULL;
+    }
 
     at_cmd_stream.set_enqueue_rt_handler(stream_buffer_all);
 
     hal.delay_ms(20, NULL);
     at_cmd_stream.write("+++");
     hal.delay_ms(1000, NULL);
-    send_command("AT+CIPMODE=0");
 
-    if(esp_at_settings.mode == WiFiMode_AP)
-        send_command("AT+CWQIF"); // disconnect client
+    if(send_command("AT+CIPMODE=0")) {
+
+        if(esp_at_settings.mode == WiFiMode_AP)
+            send_command("AT+CWQIF"); // disconnect client
+
+        task_add_delayed(await_connect, NULL, 100);
+
+        if(data)
+            *((bool *)data) = true;
+    }
 
     at_cmd_stream.reset_read_buffer();
-    task_add_delayed(await_connect, NULL, 100);
 }
 
 static ISR_CODE bool ISR_FUNC(esp_at_receive)(char c)
@@ -358,16 +375,27 @@ static ISR_CODE bool ISR_FUNC(esp_at_receive)(char c)
     return true;
 }
 
-static bool is_connected (void)
+static void await_connected (void *data)
 {
-    return true;
+    // NOTE: ESP-AT sends an ASCII_CAN character following the > character,
+    //       this is ok since it flushes the protocol line buffer.
+    if(at_cmd_stream.read() == '>') {
+        hal.stream.cancel_read_buffer();
+        at_cmd_stream.set_enqueue_rt_handler(esp_at_receive);
+        return;
+    }
+
+    if(--timeout == 0)
+        close_session(NULL);
+    else
+        task_add_delayed(await_connected, NULL, 2);
 }
 
 static void await_connect (void *data)
 {
     static const io_stream_t telnet_stream = {
         .type = StreamType_Telnet,
-        .is_connected = is_connected,
+        .is_connected = stream_connected,
         .read = atStreamGetC,
         .write_n = atStreamWrite,
         .write = atStreamWriteS,
@@ -382,13 +410,13 @@ static void await_connect (void *data)
     };
 
     static uint_fast8_t idx = 0;
-    static char buf[60];
 
     int16_t c;
 
     if((c = at_cmd_stream.read()) != SERIAL_NO_DATA) {
 
         if(c == ASCII_LF) {
+
             buf[idx] = '\0';
             idx = 0;
 
@@ -399,14 +427,20 @@ static void await_connect (void *data)
                     send_command("AT+CIPSEND") &&
                      stream_connect(&telnet_stream)) {
                     session_stream = &telnet_stream;
-                    at_cmd_stream.set_enqueue_rt_handler(esp_at_receive);
+                    idx = 0;
+                    timeout = 10;
+                    task_add_delayed(await_connected, NULL, 2);
                 } // else disconnect!
                 return;
             }
         }
 
-        if(!(c == ASCII_CR || c == ASCII_LF))
-            buf[idx++] = (char)c;
+        if(!(c == ASCII_CR || c == ASCII_LF)) {
+            if(idx >= sizeof(buf) - 1)
+                idx = 0;
+            else
+                buf[idx++] = (char)c;
+        }
     }
 
     task_add_delayed(await_connect, NULL, c == SERIAL_NO_DATA ? 200 : 2);
@@ -587,7 +621,7 @@ static bool start_ap (esp_at_wifi_settings_t *network)
     return ok;
 }
 
-static void esp_at_startup (void *data)
+static void esp_at_initialize (void *data)
 {
     char *s;
     bool ok;
@@ -595,8 +629,11 @@ static void esp_at_startup (void *data)
     if(!(ok = send_command("ATE0")))
         ok = send_command("ATE0");
 
-    if(!(esp_at_running = ok))
-        return;
+    if(!(esp_at_running = ok)) {
+        close_session(&esp_at_running);
+        if(!esp_at_running)
+            return;
+    }
 
     send_command("AT+SYSMSG=4");
 
@@ -645,6 +682,41 @@ static void esp_at_startup (void *data)
         if((esp_at_running = ok && send_command(cmd)))
             task_add_delayed(await_connect, NULL, 100);
     }
+}
+
+static bool get_ports (xbar_t *properties, uint8_t port, void *ports)
+{
+    switch(properties->function) {
+
+        case Output_CoProc_Reset:
+            ((at_ports_t *)ports)->reset = port;
+            break;
+
+        case Output_CoProc_Boot0:
+            ((at_ports_t *)ports)->boot0 = port;
+            break;
+
+        default:
+            break;
+    }
+
+    return ((at_ports_t *)ports)->reset != 0xFF && ((at_ports_t *)ports)->boot0 != 0xFF;
+}
+
+static void esp_at_startup (void *data)
+{
+    at_ports_t ports = { 0xFF, 0xFF };
+
+    // Claim control ports and reset ESP-AT processor if ports available.
+    if(ioports_enumerate(Port_Digital, Port_Output, (pin_cap_t){ .output = On }, get_ports, (void *)&ports)) {
+        hal.port.digital_out(ports.boot0, 1);
+        hal.port.digital_out(ports.reset, 0);
+        hal.delay_ms(2, NULL);
+        hal.port.digital_out(ports.reset, 1);
+    }
+
+    // Allow ESP-AT processor time to boot.
+    task_add_delayed(esp_at_initialize, NULL, 1500);
 }
 
 /*
@@ -929,7 +1001,7 @@ static void report_options (bool newopt)
             hal.stream.write("]" ASCII_EOL);
         }
 
-        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.01");
+        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.03");
     }
 }
 
