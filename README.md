@@ -1,5 +1,32 @@
 ## Assorted small plugins
 
+### Feed override
+
+Adds Marlin style M220 command for setting feed overrides.
+
+```
+  M220 [B] [R] [S<percent>]
+
+  B - backup current values
+  R - restore values from backup
+  S<percent> - percentage of current feedrate.
+```
+__NOTE:__ `M220RS<percentage>` can be used to override the rapids rate, if R is not specified the feed rate will be overridden. This deviates from the Marlin specification.
+
+Configuration:
+
+Add/uncomment `#define FEED_OVERRIDE_ENABLE 1` in _my_machine.h_.
+
+### Homing pulloff
+
+*** Experimental ***
+
+Adds per axis setting for homing pulloff distance. `$290` for X-axis pulloff, `$291` for Y-axis, ...
+
+Configuration:
+
+Add/uncomment `#define HOMING_PULLOFF_ENABLE 1` in _my_machine.h_.
+
 ### ESP-AT
 
 *** Experimental ***
