@@ -68,7 +68,6 @@ typedef struct {
 
 static uint32_t timeout;
 static bool esp_at_running;
-static uint8_t boot0_port = 0xFF, reset_port = 0xFF;
 static char ip[16];
 static char gateway[16];
 static char netmask[16];

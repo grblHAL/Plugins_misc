@@ -25,7 +25,7 @@
 #include "driver.h"
 #endif
 
-#if EVENTOUT_ENABLE
+#if EVENTOUT_ENABLE == 1
 
 #include <string.h>
 
@@ -274,7 +274,33 @@ static void event_settings_restore (void)
     memset(&plugin_settings, 0xFF, sizeof(event_settings_t));
 
     for(idx = 0; idx < n_events; idx++) {
-        plugin_settings.event[idx].trigger = Event_Ignore;
+        switch(idx) {
+
+#ifdef EVENTOUT_1_ACTION
+            case 0:
+                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_1_ACTION;
+                break;
+#endif
+#ifdef EVENTOUT_2_ACTION
+            case 1:
+                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_2_ACTION;
+                break;
+#endif
+#ifdef EVENTOUT_3_ACTION
+            case 2:
+                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_3_ACTION;
+                break;
+#endif
+#ifdef EVENTOUT_4_ACTION
+            case 3:
+                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_4_ACTION;
+                break;
+#endif
+
+            default:
+                plugin_settings.event[idx].trigger = Event_Ignore;
+                break;
+        }
         plugin_settings.event[idx].port = hal.port.num_digital_out < (idx + 1) ? 0xFF : idx;
     }
 
@@ -315,7 +341,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.01");
+        report_plugin("Events plugin", "0.02");
 }
 
 static void event_out_cfg (void *data)
