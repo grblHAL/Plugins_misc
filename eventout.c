@@ -27,6 +27,7 @@
 
 #if EVENTOUT_ENABLE == 1
 
+#include <stdio.h>
 #include <string.h>
 
 #include "grbl/nvs_buffer.h"
@@ -43,6 +44,7 @@
 #endif
 
 #define EVENT_OPTS { .subgroups = Off, .increment = 1 }
+#define EVENT_OPTS_REBOOT { .subgroups = Off, .increment = 1, .reboot_required = On }
 #define EVENT_TRIGGERS "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold"
 
 typedef enum {
@@ -147,12 +149,15 @@ static void onStateChanged (sys_state_t state)
 
 static void register_handlers (void)
 {
+    static char descr[N_EVENTS][25] = {0};
+
     uint_fast16_t idx = n_events;
 
     do {
         switch(plugin_settings.event[--idx].trigger) {
-
+            case Event_Laser:
             case Event_Spindle:
+                sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Spindle ? "Spindle enable" : "Laser enable");
                 if(!on_spindle_programmed_attached) {
                     on_spindle_programmed_attached = true;
                     on_spindle_programmed = grbl.on_spindle_programmed;
@@ -162,6 +167,7 @@ static void register_handlers (void)
 
             case Event_Mist:
             case Event_Flood:
+                sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Mist ? "Mist enable" : "Flood enable");
                 if(coolant_set_state_ == NULL) {
                     coolant_set_state_ = hal.coolant.set_state;
                     hal.coolant.set_state = onCoolantSetState;
@@ -169,6 +175,7 @@ static void register_handlers (void)
                 break;
 
             case Event_FeedHold:
+                sprintf(descr[idx], "P%d <- %s", port[idx], "Feed hold");
                 if(!on_state_change_attached) {
                     on_state_change_attached = true;
                     on_state_change = grbl.on_state_change;
@@ -177,8 +184,12 @@ static void register_handlers (void)
                 break;
 
             default:
+                sprintf(descr[idx], "P%d", port[idx]);
                 break;
         }
+
+        hal.port.set_pin_description(Port_Digital, Port_Output, port[idx], descr[idx]);
+
     } while(idx);
 }
 
@@ -249,7 +260,7 @@ static bool is_setting_available (const setting_detail_t *setting)
 
 static const setting_detail_t event_settings[] = {
     { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, EVENT_TRIGGERS, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
-    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS }
+    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS_REBOOT }
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -257,7 +268,7 @@ static const setting_detail_t event_settings[] = {
 static const setting_descr_t event_settings_descr[] = {
     { Setting_ActionBase, "Event triggering output port change.\\n\\n"
                           "NOTE: the port can still be controlled by M62-M65 commands even when bound to an event."},
-    { Setting_ActionPortBase, "Aux output port number to bind to the associated event trigger." SETTINGS_HARD_RESET_REQUIRED }
+    { Setting_ActionPortBase, "Aux output port number to bind to the associated event trigger." }
 };
 
 #endif
@@ -341,7 +352,7 @@ static void report_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.02");
+        report_plugin("Events plugin", "0.03");
 }
 
 static void event_out_cfg (void *data)
@@ -352,9 +363,8 @@ static void event_out_cfg (void *data)
         strcpy(max_port, uitoa(n_ports - 1));
 
         uint_fast16_t idx;
-        for(idx = 0; idx < n_events; idx++) {
-            port[idx] = plugin_settings.event[idx].port;
-        }
+        for(idx = 0; idx < n_events; idx++)
+            port[idx] = min(plugin_settings.event[idx].port, n_ports - 1);
 
         register_handlers();
     }

@@ -2,7 +2,7 @@
 
 ### Feed override
 
-Adds Marlin style M220 command for setting feed overrides.
+Adds Marlin style [M220](https://marlinfw.org/docs/gcode/M220.html) command for setting feed overrides.
 
 ```
   M220 [B] [R] [S<percent>]
@@ -11,7 +11,8 @@ Adds Marlin style M220 command for setting feed overrides.
   R - restore values from backup
   S<percent> - percentage of current feedrate.
 ```
-__NOTE:__ `M220RS<percentage>` can be used to override the rapids rate, if R is not specified the feed rate will be overridden. This deviates from the Marlin specification.
+> [!NOTE]
+> `M220RS<percentage>` can be used to override the rapids rate, if R is not specified the feed rate will be overridden. This deviates from the Marlin specification.
 
 Configuration:
 
