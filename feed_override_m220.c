@@ -45,18 +45,18 @@ static status_code_t mcode_validate (parser_block_t *gc_block)
     if((state = gc_block->user_mcode == SetFeedOverrides ? Status_OK : Status_Unhandled) == Status_OK) {
 
         if(gc_block->words.s) {
-            if(isnanf(gc_block->values.s) || !isintf(gc_block->values.s))
+            if(!isintf(gc_block->values.s))
                 state = Status_BadNumberFormat;
             else if(gc_block->values.s < (gc_block->words.r ? 5.0f : (float)MIN_FEED_RATE_OVERRIDE) ||
                      gc_block->values.s > (gc_block->words.r ? 100.0f : (float)MAX_FEED_RATE_OVERRIDE))
                 state = Status_GcodeValueOutOfRange;
         }
         if(state == Status_OK && gc_block->words.b) {
-            if(!isnanf(gc_block->values.b))
+            if(!isnan(gc_block->values.b))
                 state = Status_BadNumberFormat;
         }
         if(state == Status_OK && gc_block->words.r) {
-            if(!isnanf(gc_block->values.r))
+            if(!isnan(gc_block->values.r))
                 state = Status_BadNumberFormat;
         }
         gc_block->words.b = gc_block->words.r = gc_block->words.s = Off;

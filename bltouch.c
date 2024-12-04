@@ -144,13 +144,13 @@ static status_code_t mcode_validate (parser_block_t *gc_block)
 
         case Probe_Deploy:
             if(gc_block->words.s) {
-                if(isnanf(gc_block->values.s) || !isintf(gc_block->values.s))
+                if(!isintf(gc_block->values.s))
                     state = Status_BadNumberFormat;
                 else if(gc_block->values.s < -0.0f || gc_block->values.s > 1.0f)
                     state = Status_GcodeValueOutOfRange;
             }
             if(state == Status_OK && gc_block->words.r) {
-                if(isnanf(gc_block->values.r) || !isintf(gc_block->values.r))
+                if(!isintf(gc_block->values.r))
                     state = Status_BadNumberFormat;
                 else if(gc_block->values.r < -0.0f || gc_block->values.r > 1.0f)
                     state = Status_GcodeValueOutOfRange;
@@ -160,7 +160,7 @@ static status_code_t mcode_validate (parser_block_t *gc_block)
 
         case Probe_Stow:
             if(gc_block->words.r) {
-                if(isnanf(gc_block->values.r) || !isintf(gc_block->values.r))
+                if(!isintf(gc_block->values.r))
                     state = Status_BadNumberFormat;
                 else if(gc_block->values.r < -0.0f || gc_block->values.r > 1.0f)
                     state = Status_GcodeValueOutOfRange;

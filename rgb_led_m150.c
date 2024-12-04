@@ -51,7 +51,7 @@ static status_code_t parameter_validate (float *value)
 {
     status_code_t state = Status_OK;
 
-    if(isnanf(*value) || !isintf(*value))
+    if(!isintf(*value))
         state = Status_BadNumberFormat;
 
     if(*value < -0.0f || *value > 255.0f)
