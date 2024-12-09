@@ -41,8 +41,8 @@ static const setting_group_detail_t rgb_groups[] = {
 };
 
 static const setting_detail_t rgb_settings[] = {
-    { Setting_RGB_StripLengt0, Group_AuxPorts, "LED strip 1 length", NULL, Format_Int8, "##0", NULL, "255", Setting_NonCore, &settings.rgb_strip0_length, NULL, is_setting_available },
-    { Setting_RGB_StripLengt1, Group_AuxPorts, "LED strip 2 length", NULL, Format_Int8, "##0", NULL, "255", Setting_NonCore, &settings.rgb_strip1_length, NULL, is_setting_available }
+    { Setting_RGB_StripLengt0, Group_AuxPorts, "LED strip 1 length", NULL, Format_Int8, "##0", NULL, "255", Setting_NonCore, &settings.rgb_strip.length0, NULL, is_setting_available },
+    { Setting_RGB_StripLengt1, Group_AuxPorts, "LED strip 2 length", NULL, Format_Int8, "##0", NULL, "255", Setting_NonCore, &settings.rgb_strip.length1, NULL, is_setting_available }
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -59,19 +59,6 @@ static void rgb_setting_changed (settings_t *settings, settings_changed_flags_t 
     hal.settings_changed(settings, changed);
 }
 
-static setting_details_t setting_details = {
-    .groups = rgb_groups,
-    .n_groups = sizeof(rgb_groups) / sizeof(setting_group_detail_t),
-    .settings = rgb_settings,
-    .n_settings = sizeof(rgb_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
-    .descriptions = rgb_settings_descr,
-    .n_descriptions = sizeof(rgb_settings_descr) / sizeof(setting_descr_t),
-#endif
-    .on_changed = rgb_setting_changed,
-    .save = settings_write_global
-};
-
 #if RGB_LED_ENABLE == 1
 
 static bool led_enabled;
@@ -84,7 +71,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(led_enabled
                        ? "RGB LED strips"
-                       : "RGB LED strips (N/A)", "0.02");
+                       : "RGB LED strips (N/A)", "0.03");
 }
 
 void rgb_led_init (void)
@@ -100,10 +87,23 @@ void rgb_led_init (void)
 
 static inline bool rgb_led_settings_register (void)
 {
-	bool ok;
+    static setting_details_t setting_details = {
+        .groups = rgb_groups,
+        .n_groups = sizeof(rgb_groups) / sizeof(setting_group_detail_t),
+        .settings = rgb_settings,
+        .n_settings = sizeof(rgb_settings) / sizeof(setting_detail_t),
+    #ifndef NO_SETTINGS_DESCRIPTIONS
+        .descriptions = rgb_settings_descr,
+        .n_descriptions = sizeof(rgb_settings_descr) / sizeof(setting_descr_t),
+    #endif
+        .on_changed = rgb_setting_changed,
+        .save = settings_write_global
+    };
 
-	if((ok = hal.rgb0.flags.is_strip || hal.rgb1.flags.is_strip))
-		settings_register(&setting_details);
+    bool ok;
+
+    if((ok = hal.rgb0.flags.is_strip || hal.rgb1.flags.is_strip))
+        settings_register(&setting_details);
 
     return ok;
 }
