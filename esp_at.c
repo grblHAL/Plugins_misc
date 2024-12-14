@@ -42,6 +42,10 @@
 #include "grbl/nvs_buffer.h"
 #endif
 
+#ifndef COPROC_STREAM
+#define COPROC_STREAM 255 // Claim first free stream
+#endif
+
 typedef struct {
     uint8_t boot0;
     uint8_t reset;
@@ -968,20 +972,6 @@ static void esp_at_settings_load (void)
         esp_at_settings_restore();
 }
 
-static setting_details_t setting_details = {
-    .groups = esp_at_groups,
-    .n_groups = sizeof(esp_at_groups) / sizeof(setting_group_detail_t),
-    .settings = xesp_at_settings,
-    .n_settings = sizeof(xesp_at_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
-    .descriptions = esp_at_settings_descr,
-    .n_descriptions = sizeof(esp_at_settings_descr) / sizeof(setting_descr_t),
-#endif
-    .save = esp_at_settings_save,
-    .load = esp_at_settings_load,
-    .restore = esp_at_settings_restore,
-};
-
 static void report_options (bool newopt)
 {
     on_report_options(newopt);
@@ -1000,15 +990,28 @@ static void report_options (bool newopt)
             hal.stream.write("]" ASCII_EOL);
         }
 
-        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.03");
+        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.04");
     }
 }
 
 void esp_at_init (void)
 {
-    bool ok;
-    io_stream_t const *stream = stream_open_instance(255, 115200, NULL, "ESP-AT"); // open first free serial port
+    static setting_details_t setting_details = {
+        .groups = esp_at_groups,
+        .n_groups = sizeof(esp_at_groups) / sizeof(setting_group_detail_t),
+        .settings = xesp_at_settings,
+        .n_settings = sizeof(xesp_at_settings) / sizeof(setting_detail_t),
+#ifndef NO_SETTINGS_DESCRIPTIONS
+        .descriptions = esp_at_settings_descr,
+        .n_descriptions = sizeof(esp_at_settings_descr) / sizeof(setting_descr_t),
+#endif
+        .save = esp_at_settings_save,
+        .load = esp_at_settings_load,
+        .restore = esp_at_settings_restore,
+    };
 
+    bool ok;
+    io_stream_t const *stream = stream_open_instance(COPROC_STREAM, 115200, NULL, "ESP-AT");
     if((ok = stream != NULL)) {
         memcpy(&at_cmd_stream, stream, sizeof(io_stream_t));
         at_cmd_stream.set_enqueue_rt_handler(stream_buffer_all);
