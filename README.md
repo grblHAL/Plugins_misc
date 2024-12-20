@@ -45,6 +45,9 @@ Add/uncomment `#define ESP_AT_ENABLE 1` in _my_machine.h_.
 
 Adds many networking and WiFi settings for configuring mode \(Station, Access Point\), Telnet port, IP adress etc.
 
+> [!NOTE]
+> The ESP32 is a 3.3V device and pins are not 5V tolerant. If the controller serial port uses 5V signalling add a 5V to 3.3V level shifter, at least for the controller TX line.
+
 ### RGB LED strips
 
 Adds one or two settings, `$536` and `$537`, for setting number of LEDs in NeoPixel/WS2812 LED strips.
@@ -166,4 +169,4 @@ Credits:
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 ---
-2024-10-30
+2024-12-20
