@@ -3,7 +3,7 @@
 
   Part of grblHAL misc. plugins
 
-  Copyright (c) 2024 Terje Io
+  Copyright (c) 2024-2024 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -280,7 +280,10 @@ static void event_settings_save (void)
 
 static void event_settings_restore (void)
 {
-    uint_fast8_t idx = n_ports;
+    uint_fast8_t idx;
+
+    if(n_ports == 0 && (n_ports = hal.port.num_digital_out))
+        n_events = min(n_ports, N_EVENTS);
 
     memset(&plugin_settings, 0xFF, sizeof(event_settings_t));
 
@@ -334,25 +337,12 @@ static bool event_settings_iterator (const setting_detail_t *setting, setting_ou
     return true;
 }
 
-static setting_details_t setting_details = {
-    .settings = event_settings,
-    .n_settings = sizeof(event_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
-    .descriptions = event_settings_descr,
-    .n_descriptions = sizeof(event_settings_descr) / sizeof(setting_descr_t),
-#endif
-    .save = event_settings_save,
-    .load = event_settings_load,
-    .restore = event_settings_restore,
-    .iterator = event_settings_iterator
-};
-
 static void report_options (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.03");
+        report_plugin("Events plugin", "0.04");
 }
 
 static void event_out_cfg (void *data)
@@ -372,6 +362,19 @@ static void event_out_cfg (void *data)
 
 void event_out_init (void)
 {
+    static setting_details_t setting_details = {
+        .settings = event_settings,
+        .n_settings = sizeof(event_settings) / sizeof(setting_detail_t),
+    #ifndef NO_SETTINGS_DESCRIPTIONS
+        .descriptions = event_settings_descr,
+        .n_descriptions = sizeof(event_settings_descr) / sizeof(setting_descr_t),
+    #endif
+        .save = event_settings_save,
+        .load = event_settings_load,
+        .restore = event_settings_restore,
+        .iterator = event_settings_iterator
+    };
+
     if((nvs_address = nvs_alloc(sizeof(event_settings_t)))) {
 
         settings_register(&setting_details);
