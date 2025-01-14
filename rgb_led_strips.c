@@ -15,7 +15,7 @@
 
 #if RGB_LED_ENABLE
 
-static bool is_setting_available (const setting_detail_t *setting)
+static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
 {
     bool available = false;
 
@@ -71,7 +71,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(led_enabled
                        ? "RGB LED strips"
-                       : "RGB LED strips (N/A)", "0.03");
+                       : "RGB LED strips (N/A)", "0.04");
 }
 
 void rgb_led_init (void)

@@ -3,7 +3,7 @@
 
   Part of grblHAL misc. plugins
 
-  Copyright (c) 2024-2024 Terje Io
+  Copyright (c) 2024-2025 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -84,7 +84,7 @@ static void onReset (void)
     uint_fast16_t idx = n_events;
 
     do {
-        if(plugin_settings.event[--idx].trigger)
+        if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger)
             hal.port.digital_out(port[idx], 0);
     } while(idx);
 
@@ -99,7 +99,7 @@ static void onSpindleProgrammed (spindle_ptrs_t *spindle, spindle_state_t state,
         on_spindle_programmed(spindle, state, rpm, mode);
 
     do {
-        if(plugin_settings.event[--idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
+        if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
             hal.port.digital_out(port[idx], state.on);
     } while(idx);
 }
@@ -111,7 +111,8 @@ static void onCoolantSetState (coolant_state_t state)
     coolant_set_state_(state);
 
     do {
-        switch(plugin_settings.event[--idx].trigger) {
+        if(port[--idx] != 0xFF)
+          switch(plugin_settings.event[idx].trigger) {
 
             case Event_Mist:
                 hal.port.digital_out(port[idx], state.mist);
@@ -138,7 +139,7 @@ static void onStateChanged (sys_state_t state)
         last_state = state;
 
         do {
-            if(plugin_settings.event[--idx].trigger == Event_FeedHold)
+            if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger == Event_FeedHold)
                 hal.port.digital_out(port[idx], state == STATE_HOLD);
         } while(idx);
     }
@@ -154,7 +155,8 @@ static void register_handlers (void)
     uint_fast16_t idx = n_events;
 
     do {
-        switch(plugin_settings.event[--idx].trigger) {
+        if(port[--idx] != 0xFF)
+          switch(plugin_settings.event[idx].trigger) {
             case Event_Laser:
             case Event_Spindle:
                 sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Spindle ? "Spindle enable" : "Laser enable");
@@ -207,60 +209,55 @@ static status_code_t set_int (setting_id_t setting, uint_fast16_t value)
 
     setting = normalize_id(setting, &idx);
 
-    if(idx < n_events) switch(setting) {
-
-        case Setting_ActionBase:
-            plugin_settings.event[idx].trigger = value;
-            register_handlers();
-            break;
-
-        case Setting_ActionPortBase:
-            plugin_settings.event[idx].port = value;
-            break;
-
-        default:
-            status = Status_Unhandled;
-            break;
-    }
+    plugin_settings.event[idx].trigger = (event_trigger_t)value;
 
     return status;
 }
 
 static uint_fast16_t get_int (setting_id_t setting)
 {
-    uint_fast16_t idx, value = 0;
+    uint_fast16_t idx;
 
     setting = normalize_id(setting, &idx);
 
-    if(idx < n_events) switch(setting) {
+    return plugin_settings.event[idx].trigger;
+}
 
-        case Setting_ActionBase:
-            value = plugin_settings.event[idx].trigger;
-            break;
+static status_code_t set_port (setting_id_t setting, float value)
+{
+    uint_fast16_t idx;
+    status_code_t status = Status_OK;
 
-        case Setting_ActionPortBase:
-            value = plugin_settings.event[idx].port;
-            break;
+    if(!isintf(value))
+        return Status_BadNumberFormat;
 
-        default:
-            break;
-    }
+    setting = normalize_id(setting, &idx);
+
+    plugin_settings.event[idx].port = value < 0.0f ? 0xFF : (uint8_t)value;
+
+    return status;
+}
+
+static float get_port (setting_id_t setting)
+{
+    float value;
+    uint_fast16_t idx;
+
+    setting = normalize_id(setting, &idx);
+
+    value = plugin_settings.event[idx].port >= n_ports ? -1.0f : (float)plugin_settings.event[idx].port;
 
     return value;
 }
 
-static bool is_setting_available (const setting_detail_t *setting)
+static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
 {
-    uint_fast16_t idx;
-
-    normalize_id(setting->id, &idx);
-
-    return idx < n_events;
+    return offset < n_ports;
 }
 
 static const setting_detail_t event_settings[] = {
     { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, EVENT_TRIGGERS, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
-    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Int8, "#0", "0", max_port, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS_REBOOT }
+    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Decimal, "-#0", "-1", max_port, Setting_NonCoreFn, set_port, get_port, is_setting_available, EVENT_OPTS_REBOOT }
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
@@ -268,7 +265,7 @@ static const setting_detail_t event_settings[] = {
 static const setting_descr_t event_settings_descr[] = {
     { Setting_ActionBase, "Event triggering output port change.\\n\\n"
                           "NOTE: the port can still be controlled by M62-M65 commands even when bound to an event."},
-    { Setting_ActionPortBase, "Aux output port number to bind to the associated event trigger." }
+    { Setting_ActionPortBase, "Aux output port number to bind to the associated event trigger. Set to -1 to disable." }
 };
 
 #endif
@@ -282,7 +279,7 @@ static void event_settings_restore (void)
 {
     uint_fast8_t idx;
 
-    if(n_ports == 0 && (n_ports = hal.port.num_digital_out))
+    if(n_ports == 0 && (n_ports = ioports_unclaimed(Port_Digital, Port_Output)))
         n_events = min(n_ports, N_EVENTS);
 
     memset(&plugin_settings, 0xFF, sizeof(event_settings_t));
@@ -315,7 +312,7 @@ static void event_settings_restore (void)
                 plugin_settings.event[idx].trigger = Event_Ignore;
                 break;
         }
-        plugin_settings.event[idx].port = hal.port.num_digital_out < (idx + 1) ? 0xFF : idx;
+        plugin_settings.event[idx].port = n_ports < (idx + 1) ? 0xFF : idx;
     }
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(event_settings_t), true);
@@ -337,24 +334,28 @@ static bool event_settings_iterator (const setting_detail_t *setting, setting_ou
     return true;
 }
 
-static void report_options (bool newopt)
+static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.04");
+        report_plugin("Events plugin", "0.05");
 }
 
 static void event_out_cfg (void *data)
 {
-    if((n_ports = hal.port.num_digital_out)) {
+    if((n_ports = ioports_unclaimed(Port_Digital, Port_Output))) {
 
         n_events = min(n_ports, N_EVENTS);
         strcpy(max_port, uitoa(n_ports - 1));
 
         uint_fast16_t idx;
-        for(idx = 0; idx < n_events; idx++)
-            port[idx] = min(plugin_settings.event[idx].port, n_ports - 1);
+        for(idx = 0; idx < n_events; idx++) {
+            if(plugin_settings.event[idx].port == 0xFF)
+                port[idx] = 0xFF;
+            else
+                port[idx] = min(plugin_settings.event[idx].port, n_ports - 1);
+        }
 
         register_handlers();
     }
@@ -380,7 +381,7 @@ void event_out_init (void)
         settings_register(&setting_details);
 
         on_report_options = grbl.on_report_options;
-        grbl.on_report_options = report_options;
+        grbl.on_report_options = onReportOptions;
 
         driver_reset = hal.driver_reset;
         hal.driver_reset = onReset;
