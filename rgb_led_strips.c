@@ -71,11 +71,24 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(led_enabled
                        ? "RGB LED strips"
-                       : "RGB LED strips (N/A)", "0.04");
+                       : "RGB LED strips (N/A)", "0.05");
 }
 
 void rgb_led_init (void)
 {
+    static setting_details_t setting_details = {
+        .groups = rgb_groups,
+        .n_groups = sizeof(rgb_groups) / sizeof(setting_group_detail_t),
+        .settings = rgb_settings,
+        .n_settings = sizeof(rgb_settings) / sizeof(setting_detail_t),
+    #ifndef NO_SETTINGS_DESCRIPTIONS
+        .descriptions = rgb_settings_descr,
+        .n_descriptions = sizeof(rgb_settings_descr) / sizeof(setting_descr_t),
+    #endif
+        .on_changed = rgb_setting_changed,
+        .save = settings_write_global
+    };
+
     if((led_enabled = hal.rgb0.flags.is_strip || hal.rgb1.flags.is_strip))
         settings_register(&setting_details);
 
