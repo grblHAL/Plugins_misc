@@ -25,8 +25,6 @@
 #include "grbl/nuts_bolts.h"
 #include "grbl/protocol.h"
 
-#define STOW_ALARM true
-
 // Safety: The probe needs time to recognize the command.
 //         Minimum command delay (ms). Increase if needed.
 
@@ -84,13 +82,14 @@ static xbar_t servo = {0};
 static uint8_t servo_port = 0xFF;
 static on_probe_start_ptr on_probe_start;
 static on_probe_completed_ptr on_probe_completed;
+static driver_reset_ptr driver_reset = NULL;
 static on_report_options_ptr on_report_options;
 static user_mcode_ptrs_t user_mcode;
-static bool high_speed = false, selftest = false;
+static bool high_speed = false, auto_deploy = true;
 
 static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms);
 
-static void selftest_done (void *data)
+static void bltouch_stow (void *data)
 {
     bltouch_cmd(BLTouch_Stow, BLTOUCH_STOW_DELAY);
 }
@@ -98,6 +97,7 @@ static void selftest_done (void *data)
 static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms)
 {
     static float current_angle = -1.0f;
+    static bool selftest = false;
 
     // If the new command (angle) is the same, skip it (and the delay).
     // The previous write should've already delayed to detect the alarm.
@@ -107,7 +107,7 @@ static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms)
 #endif
 
     if(selftest)
-        task_delete(selftest_done, NULL);
+        task_delete(bltouch_stow, NULL);
 
     selftest = cmd == BLTouch_Selftest;
 
@@ -124,7 +124,15 @@ static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms)
 static status_code_t bltouch_selftest (sys_state_t state, char *args)
 {
     if(bltouch_cmd(BLTouch_Selftest, 0))
-        task_add_delayed(selftest_done, NULL, BLTOUCH_SELFTEST_TIME);
+        task_add_delayed(bltouch_stow, NULL, BLTOUCH_SELFTEST_TIME);
+
+    return Status_OK;
+}
+
+static status_code_t bltouch_reset (sys_state_t state, char *args)
+{
+    if(bltouch_cmd(BLTouch_Reset, BLTOUCH_RESET_DELAY))
+        task_add_delayed(bltouch_stow, NULL, 10);
 
     return Status_OK;
 }
@@ -149,13 +157,19 @@ static status_code_t mcode_validate (parser_block_t *gc_block)
                 else if(gc_block->values.s < -0.0f || gc_block->values.s > 1.0f)
                     state = Status_GcodeValueOutOfRange;
             }
+            if(gc_block->words.d) {
+                if(!isintf(gc_block->values.s))
+                    state = Status_BadNumberFormat;
+                else if(gc_block->values.d < -0.0f || gc_block->values.d > 1.0f)
+                    state = Status_GcodeValueOutOfRange;
+            }
             if(state == Status_OK && gc_block->words.r) {
                 if(!isintf(gc_block->values.r))
                     state = Status_BadNumberFormat;
                 else if(gc_block->values.r < -0.0f || gc_block->values.r > 1.0f)
                     state = Status_GcodeValueOutOfRange;
             }
-            gc_block->words.h = gc_block->words.r = gc_block->words.s = Off;
+            gc_block->words.d = gc_block->words.h = gc_block->words.r = gc_block->words.s = Off;
             break;
 
         case Probe_Stow:
@@ -190,12 +204,14 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
                  hal.stream.write(uitoa(high_speed));
                  hal.stream.write("]" ASCII_EOL);
              }
-             if(!(gc_block->words.s || gc_block->words.h))
+             if(gc_block->words.d)
+                 auto_deploy = gc_block->values.d != 0.0f;
+             if(!(gc_block->words.s || gc_block->words.h || gc_block->words.d))
                  bltouch_cmd(BLTouch_Deploy, BLTOUCH_DEPLOY_DELAY);
              break;
 
          case Probe_Stow:
-             bltouch_cmd(BLTouch_Stow, BLTOUCH_STOW_DELAY);
+             bltouch_stow(NULL);
              break;
 
          default:
@@ -211,7 +227,7 @@ static bool onProbeStart (axes_signals_t axes, float *target, plan_line_data_t *
 {
     bool ok = on_probe_start == NULL || on_probe_start(axes, target, pl_data);
 
-    if(!high_speed && ok)
+    if(ok && auto_deploy && !high_speed)
         bltouch_cmd(BLTouch_Deploy, BLTOUCH_DEPLOY_DELAY);
 
     return ok;
@@ -219,28 +235,26 @@ static bool onProbeStart (axes_signals_t axes, float *target, plan_line_data_t *
 
 static void onProbeCompleted (void)
 {
-    if(!high_speed)
-        bltouch_cmd(BLTouch_Stow, BLTOUCH_STOW_DELAY);
+    if(auto_deploy && !high_speed)
+        bltouch_stow(NULL);
 
     if(on_probe_completed)
         on_probe_completed();
 }
 
-const sys_command_t bltouch_command_list[] = {
-    {"BLTEST", bltouch_selftest, {}, { .str = "perform BLTouch probe self-test" } },
-};
+static void onDriverReset (void)
+{
+    driver_reset();
 
-static sys_commands_t bltouch_commands = {
-    .n_commands = sizeof(bltouch_command_list) / sizeof(sys_command_t),
-    .commands = bltouch_command_list
-};
+    task_add_immediate(bltouch_stow, NULL);
+}
 
 static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.04");
+        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.05");
 }
 
 static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
@@ -259,13 +273,18 @@ static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
     return false;
 }
 
-static void bltouch_stow (void *data)
-{
-    bltouch_cmd(BLTouch_Stow, BLTOUCH_STOW_DELAY);
-}
-
 void bltouch_init (void)
 {
+    static const sys_command_t bltouch_command_list[] = {
+        { "BLRESET", bltouch_reset, {}, { .str = "perform BLTouch probe reset" } },
+        { "BLTEST", bltouch_selftest, {}, { .str = "perform BLTouch probe self-test" } }
+     };
+
+    static sys_commands_t bltouch_commands = {
+        .n_commands = sizeof(bltouch_command_list) / sizeof(sys_command_t),
+        .commands = bltouch_command_list
+    };
+
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
@@ -276,6 +295,9 @@ void bltouch_init (void)
         grbl.user_mcode.check = mcode_check;
         grbl.user_mcode.validate = mcode_validate;
         grbl.user_mcode.execute = mcode_execute;
+
+        driver_reset = hal.driver_reset;
+        hal.driver_reset = onDriverReset;
 
         on_probe_start = grbl.on_probe_start;
         grbl.on_probe_start = onProbeStart;
