@@ -4,7 +4,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2024 Terje Io
+  Copyright (c) 2024-2025 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -28,19 +28,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef ARDUINO
-#include "../grbl/hal.h"
-#include "../grbl/task.h"
-#include "../grbl/protocol.h"
-#include "../grbl/state_machine.h"
-#include "../grbl/nvs_buffer.h"
-#else
 #include "grbl/hal.h"
 #include "grbl/task.h"
 #include "grbl/protocol.h"
 #include "grbl/state_machine.h"
 #include "grbl/nvs_buffer.h"
-#endif
 
 #ifndef COPROC_STREAM
 #define COPROC_STREAM 255 // Claim first free stream
@@ -84,6 +76,49 @@ static esp_at_settings_t esp_at_settings;
 static const io_stream_t *session_stream;
 
 static void await_connect (void *data);
+
+#if ETHERNET_ENABLE
+
+#include "networking/networking.h"
+
+static char const if_name[] = "at0";
+static network_flags_t network_status = {};
+
+static networking_get_info get_info = NULL;
+
+static network_info_t *getInfo (const char *interface)
+{
+    static network_info_t info = { .interface = if_name };
+
+    if(interface == info.interface) {
+
+        strcpy(info.mac, mac);
+        strcpy(info.status.ip, ip);
+
+        if(info.status.ip_mode == IpMode_DHCP) {
+            *info.status.gateway = '\0';
+            *info.status.mask = '\0';
+        }
+
+        info.status.services = (network_services_t){ .telnet = On };
+
+        return &info;
+    }
+
+    return get_info ? get_info(interface) : NULL;
+}
+
+static void status_event_out (void *data)
+{
+    networking.event(if_name, (network_status_t){ .value = (uint32_t)data });
+}
+
+static void status_event_publish (network_flags_t changed)
+{
+    task_add_immediate(status_event_out, (void *)((network_status_t){ .changed = changed, .flags = network_status }).value);
+}
+
+#endif // ETHERNET_ENABLE
 
 /////////////////////////
 
@@ -325,6 +360,11 @@ static void close_session (void *data)
             *((bool *)data) = true;
     }
 
+#if ETHERNET_ENABLE
+    network_status.ip_aquired = Off;
+    status_event_publish((network_flags_t){ .ip_aquired = On });
+#endif
+
     at_cmd_stream.reset_read_buffer();
 }
 
@@ -547,6 +587,13 @@ static bool start_sta (esp_at_wifi_settings_t *network)
         }
     }
 
+#if ETHERNET_ENABLE
+    if(ok && !network_status.ip_aquired) {
+        network_status.ip_aquired = On;
+        status_event_publish((network_flags_t){ .ip_aquired = On });
+    }
+#endif
+
     return ok;
 }
 
@@ -621,6 +668,13 @@ static bool start_ap (esp_at_wifi_settings_t *network)
         }
     }
 
+#if ETHERNET_ENABLE
+    if(ok && !network_status.ip_aquired) {
+        network_status.ip_aquired = network_status.ap_started = On;
+        status_event_publish((network_flags_t){ .ap_started = On, .ip_aquired = On });
+    }
+#endif
+
     return ok;
 }
 
@@ -640,6 +694,8 @@ static void esp_at_initialize (void *data)
 
     send_command("AT+SYSMSG=4");
 
+    hal.delay_ms(2, NULL);
+
     esp_at_running = false;
     s = get_reply("AT+CIPSERVER?");
     while(s) {
@@ -655,6 +711,11 @@ static void esp_at_initialize (void *data)
     }
 
     ok = !esp_at_running || send_command("AT+CIPSERVER=0,1");
+
+#if ETHERNET_ENABLE
+    network_status.interface_up = ok;
+    status_event_publish((network_flags_t){ .interface_up = On });
+#endif
 
     hal.delay_ms(10, 0);
 
@@ -854,12 +915,12 @@ static const setting_detail_t xesp_at_settings[] = {
     { Setting_WifiMode, Group_Networking_Wifi, "WiFi Mode", NULL, Format_RadioButtons, "Off,Station,Access Point", NULL, NULL, Setting_NonCore, &esp_at_settings.mode, NULL, NULL },
     { Setting_WiFi_STA_SSID, Group_Networking_Wifi, "WiFi Station (STA) SSID", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, &esp_at_settings.sta.ssid, NULL, NULL },
     { Setting_WiFi_STA_Password, Group_Networking_Wifi, "WiFi Station (STA) Password", NULL, Format_Password, "x(32)", "8", "32", Setting_NonCore, &esp_at_settings.sta.password, NULL, NULL, { .allow_null = On } },
-    { Setting_Hostname, Group_Networking, "Hostname", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, esp_at_settings.sta.hostname, NULL, NULL, { .reboot_required = On } },
-    { Setting_IpMode, Group_Networking, "IP Mode", NULL, Format_RadioButtons, "Static,DHCP", NULL, NULL, Setting_NonCore, &esp_at_settings.sta.ip_mode, NULL, NULL, { .reboot_required = On } },
-    { Setting_IpAddress3, Group_Networking, "IP Address", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } },
-    { Setting_Gateway3, Group_Networking, "Gateway", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } },
-    { Setting_NetMask3, Group_Networking, "Netmask", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } },
-    { Setting_TelnetPort, Group_Networking, "Telnet port", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCore, &esp_at_settings.telnet_port, NULL, NULL, { .reboot_required = On } },
+    { Setting_Hostname3, Group_Networking, "Hostname (STA)", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, esp_at_settings.sta.hostname, NULL, NULL, { .reboot_required = On } },
+    { Setting_IpMode3, Group_Networking, "IP Mode (STA)", NULL, Format_RadioButtons, "Static,DHCP", NULL, NULL, Setting_NonCore, &esp_at_settings.sta.ip_mode, NULL, NULL, { .reboot_required = On } },
+    { Setting_IpAddress3, Group_Networking, "IP Address (STA)", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } },
+    { Setting_Gateway3, Group_Networking, "Gateway (STA)", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } },
+    { Setting_NetMask3, Group_Networking, "Netmask (STA)", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } },
+    { Setting_TelnetPort3, Group_Networking, "Telnet port (STA)", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCore, &esp_at_settings.telnet_port, NULL, NULL, { .reboot_required = On } },
     { Setting_WiFi_AP_SSID, Group_Networking_Wifi, "WiFi Access Point (AP) SSID", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, &esp_at_settings.ap.ssid, NULL, NULL },
     { Setting_WiFi_AP_Password, Group_Networking_Wifi, "WiFi Access Point (AP) Password", NULL, Format_Password, "x(32)", "8", "32", Setting_NonCore, &esp_at_settings.ap.password, NULL, NULL, { .allow_null = On } },
 //    { Setting_Wifi_AP_Country, Group_Networking_Wifi, "WiFi Country Code", NULL, Format_String, "x(2)", "2", "2", Setting_NonCoreFn, wifi_set_country, wifi_get_country, NULL, { .allow_null = On, .reboot_required = On } },
@@ -876,17 +937,20 @@ static const setting_descr_t esp_at_settings_descr[] = {
     { Setting_WifiMode, "WiFi Mode." },
     { Setting_WiFi_STA_SSID, "WiFi Station (STA) SSID." },
     { Setting_WiFi_STA_Password, "WiFi Station (STA) Password." },
-    { Setting_TelnetPort3, "(Raw) Telnet port number listening for incoming connections." },
-    { Setting_IpMode, "IP Mode." },
+    { Setting_Hostname3, "WiFi Station (STA) network hostname." },
+    { Setting_IpAddress3, "WiFi Station (STA) static IP address." },
+    { Setting_Gateway3, "WiFi Station (STA) static gateway address." },
+    { Setting_NetMask3, "WiFi Station (STA) static netmask." },    { Setting_TelnetPort3, "(Raw) Telnet port number listening for incoming connections." },
+    { Setting_IpMode3, "WiFi Station (STA) IP Mode." },
     { Setting_WiFi_AP_SSID, "WiFi Access Point (AP) SSID." },
     { Setting_WiFi_AP_Password, "WiFi Access Point (AP) Password." },
 //    { Setting_Wifi_AP_Country, "ISO3166 country code, controls availability of channels 12-14.\\n"
 //                               "Set to ""01"" for generic worldwide channels." },
     { Setting_Wifi_AP_Channel, "WiFi Access Point (AP) channel to use.\\n May be overridden when connecting to an Access Point as station or by country setting." },
-    { Setting_Hostname2, "Network hostname." },
-    { Setting_IpAddress2, "Static IP address." },
-    { Setting_Gateway2, "Static gateway address." },
-    { Setting_NetMask2, "Static netmask." },
+    { Setting_Hostname2, "WiFi Access Point (AP) network hostname." },
+    { Setting_IpAddress2, "WiFi Access Point (AP) static IP address." },
+    { Setting_Gateway2, "WiFi Access Point (AP) static gateway address." },
+    { Setting_NetMask2, "WiFi Access Point (AP) static netmask." },
 };
 
 #endif
@@ -990,7 +1054,7 @@ static void report_options (bool newopt)
             hal.stream.write("]" ASCII_EOL);
         }
 
-        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.04");
+        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.05");
     }
 }
 
@@ -1019,15 +1083,21 @@ void esp_at_init (void)
 
     if(ok && (nvs_address = nvs_alloc(sizeof(esp_at_settings_t)))) {
 
+#if ETHERNET_ENABLE
+        networking_init();
+
+        get_info = networking.get_info;
+        networking.get_info = getInfo;
+#endif
+
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = report_options;
 
         settings_register(&setting_details);
 
         protocol_enqueue_foreground_task(esp_at_startup, NULL);
-
     } else
         protocol_enqueue_foreground_task(report_warning, "ESP-AT plugin failed to initialize!");
 }
 
-#endif
+#endif // ESP_AT_ENABLE
