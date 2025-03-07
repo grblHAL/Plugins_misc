@@ -102,7 +102,7 @@ where `<n>` is the event number, currently 0 - 3.
 
 Dependencies:
 
-The selected driver/board must provide at least one free auxillary output port.
+The selected driver/board must provide at least one free auxiliary output port.
 
 Credits:
 
@@ -130,7 +130,7 @@ Add/uncomment `#define PWM_SERVO_ENABLE 1` in _my_machine.h_.
 
 Dependencies:
 
-The selected driver/board must provide at least one free auxillary analog output port that is PWM capable.
+The selected driver/board must provide at least one free auxiliary analog output port that is PWM capable.
 
 Credits:
 
@@ -162,7 +162,7 @@ Add/uncomment `#define PWM_SERVO_ENABLE 1` and `#define BLTOUCH_ENABLE 1` in _my
 
 Dependencies:
 
-The selected driver/board must provide at least one free auxillary analog output port that is PWM capable.
+The selected driver/board must provide at least one free auxiliary analog output port that is PWM capable.
 
 Credits:
 
