@@ -19,11 +19,7 @@
   along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if EVENTOUT_ENABLE == 1
 
