@@ -1,5 +1,5 @@
 /*
-  mcp3221.c - analog input from a MCP3221E I2C ADC
+  mcp3221.c - analog input from a MCP3221 I2C ADC
 
   Part of grblHAL
 
@@ -38,6 +38,7 @@ static xbar_t mcp3221 = {
     .cap = {
         .output = On,
         .analog = On,
+        .external = On,
         .claimable = On
     },
     .mode = {
@@ -67,6 +68,14 @@ static int32_t mcp3221_wait_on_input (uint8_t port, wait_mode_t wait_mode, float
     return port < analog.in.n_ports ? (int32_t)mcp3221_in_state(&mcp3221) : -1;
 }
 
+static bool set_pin_function (xbar_t *input, pin_function_t function)
+{
+    if(input->id == mcp3221.id)
+        mcp3221.function = function;
+
+    return input->id == mcp3221.id;
+}
+
 static xbar_t *mcp3221_get_pin_info (io_port_direction_t dir, uint8_t port)
 {
     static xbar_t pin;
@@ -77,6 +86,7 @@ static xbar_t *mcp3221_get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Input && port < analog.in.n_ports) {
         pin.get_value = mcp3221_in_state;
+        pin.set_function = set_pin_function;
         info = &pin;
     }
 
@@ -114,16 +124,17 @@ static void get_next_port (xbar_t *pin, void *fn)
 
 void mcp3221_init (void)
 {
-    hal.enumerate_pins(false, get_next_port, &mcp3221.function);
-
-    io_analog_t ports = {
-        .ports = &analog,
-        .get_pin_info = mcp3221_get_pin_info,
-        .wait_on_input = mcp3221_wait_on_input,
-        .set_pin_description = mcp3221_set_pin_description
-    };
-
     if(i2c_start().ok && i2c_probe(MCP3221_ENABLE)) {
+
+        io_analog_t ports = {
+            .ports = &analog,
+            .get_pin_info = mcp3221_get_pin_info,
+            .wait_on_input = mcp3221_wait_on_input,
+            .set_pin_description = mcp3221_set_pin_description
+        };
+
+        hal.enumerate_pins(false, get_next_port, &mcp3221.function);
+
         analog.in.n_ports = 1;
         ioports_add_analog(&ports);
     }
