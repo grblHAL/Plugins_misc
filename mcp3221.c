@@ -21,10 +21,14 @@
 
 #include "driver.h"
 
-#ifdef MCP3221_ENABLE_NEW
+#ifdef MCP3221_ENABLE
 
 #include "grbl/plugins.h"
 #include "grbl/ioports.h"
+
+#ifndef MCP3221_ADDRESS
+#define MCP3221_ADDRESS (0x9A >> 1)
+#endif
 
 static float value;
 static enumerate_pins_ptr on_enumerate_pins;
@@ -55,7 +59,7 @@ static float mcp3221_in_state (xbar_t *input)
 
         uint8_t result[2];
 
-        i2c_receive(MCP3221_ENABLE, result, 2, true);
+        i2c_receive(MCP3221_ADDRESS, result, 2, true);
 
         value = (float)((result[0] << 8) | result[1]);
     }
@@ -124,7 +128,7 @@ static void get_next_port (xbar_t *pin, void *fn)
 
 void mcp3221_init (void)
 {
-    if(i2c_start().ok && i2c_probe(MCP3221_ENABLE)) {
+    if(i2c_start().ok && i2c_probe(MCP3221_ADDRESS)) {
 
         io_analog_t ports = {
             .ports = &analog,

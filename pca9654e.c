@@ -57,35 +57,29 @@ ioexpand_t ioexpand_in (void)
 
 static void digital_out_ll (xbar_t *output, float value)
 {
-    uint8_t cmd[2];
+    static uint8_t last_out = 0;
 
     if(value != 0.0f)
         pca9654_out |= (1 << output->pin);
     else
         pca9654_out &= ~(1 << output->pin);
 
-    cmd[0] = RW_OUTPUT;
-    cmd[1] = pca9654_out;
+    if(last_out != pca9654_out) {
+ 
+        uint8_t cmd[2];
 
-    i2c_send(PCA9654E_ADDRESS, cmd, 2, true);
+        cmd[0] = RW_OUTPUT;
+        cmd[1] = pca9654_out;
+        last_out = pca9654_out;
+
+        i2c_send(PCA9654E_ADDRESS, cmd, 2, true);
+    }
 }
 
 static void digital_out (uint8_t port, bool on)
 {
-    if(port < digital.out.n_ports) {
-
-        uint8_t cmd[2];
-
-        if(on)
-            pca9654_out |= (1 << aux_out[port].pin);
-        else
-            pca9654_out &= ~(1 << aux_out[port].pin);
-
-        cmd[0] = RW_OUTPUT;
-        cmd[1] = pca9654_out;
-
-        i2c_send(PCA9654E_ADDRESS, cmd, 2, true);
-    }
+    if(port < digital.out.n_ports)
+        digital_out_ll(&aux_out[port], (float)on);
 }
 
 static float digital_out_state (xbar_t *output)
@@ -175,6 +169,10 @@ void pca9654e_init (void)
 
         cmd[0] = RW_INVERSION;
         cmd[1] = 0; // cfg
+        i2c_send(PCA9654E_ADDRESS, cmd, 2, true);
+
+        cmd[0] = RW_OUTPUT;
+        cmd[1] = 0;
         i2c_send(PCA9654E_ADDRESS, cmd, 2, true);
 
         hal.enumerate_pins(false, get_aux_max, &aux_out_base);
