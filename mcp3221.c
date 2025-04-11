@@ -1,5 +1,5 @@
 /*
-  mcp3221.c - analog input from a MCP3221 I2C ADC
+  mcp3221.c - analog input from a MCP3221 I2C ADC (12 bit)
 
   Part of grblHAL
 
@@ -40,8 +40,9 @@ static xbar_t mcp3221 = {
     .group = PinGroup_AuxInputAnalog,
     .port = &value,
     .cap = {
-        .output = On,
+        .input = On,
         .analog = On,
+        .resolution = Resolution_12bit,
         .external = On,
         .claimable = On
     },
