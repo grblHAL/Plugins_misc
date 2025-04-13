@@ -773,10 +773,10 @@ static void esp_at_startup (void *data)
 
     // Claim control ports and reset ESP-AT processor if ports available.
     if(ioports_enumerate(Port_Digital, Port_Output, (pin_cap_t){ .output = On }, get_ports, (void *)&ports)) {
-        hal.port.digital_out(ports.boot0, 1);
-        hal.port.digital_out(ports.reset, 0);
+        ioport_digital_out(ports.boot0, 1);
+        ioport_digital_out(ports.reset, 0);
         hal.delay_ms(2, NULL);
-        hal.port.digital_out(ports.reset, 1);
+        ioport_digital_out(ports.reset, 1);
     }
 
     // Allow ESP-AT processor time to boot.
@@ -1054,7 +1054,7 @@ static void report_options (bool newopt)
             hal.stream.write("]" ASCII_EOL);
         }
 
-        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.05");
+        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.06");
     }
 }
 

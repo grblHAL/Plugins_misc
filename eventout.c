@@ -81,7 +81,7 @@ static void onReset (void)
 
     do {
         if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger)
-            hal.port.digital_out(port[idx], 0);
+            ioport_digital_out(port[idx], 0);
     } while(idx);
 
     driver_reset();
@@ -96,7 +96,7 @@ static void onSpindleProgrammed (spindle_ptrs_t *spindle, spindle_state_t state,
 
     do {
         if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
-            hal.port.digital_out(port[idx], state.on);
+            ioport_digital_out(port[idx], state.on);
     } while(idx);
 }
 
@@ -111,11 +111,11 @@ static void onCoolantSetState (coolant_state_t state)
           switch(plugin_settings.event[idx].trigger) {
 
             case Event_Mist:
-                hal.port.digital_out(port[idx], state.mist);
+                ioport_digital_out(port[idx], state.mist);
                 break;
 
             case Event_Flood:
-                hal.port.digital_out(port[idx], state.flood);
+                ioport_digital_out(port[idx], state.flood);
                 break;
 
             default:
@@ -136,7 +136,7 @@ static void onStateChanged (sys_state_t state)
 
         do {
             if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger == Event_FeedHold)
-                hal.port.digital_out(port[idx], state == STATE_HOLD);
+                ioport_digital_out(port[idx], state == STATE_HOLD);
         } while(idx);
     }
 
@@ -186,7 +186,7 @@ static void register_handlers (void)
                 break;
         }
 
-        hal.port.set_pin_description(Port_Digital, Port_Output, port[idx], descr[idx]);
+        ioport_set_description(Port_Digital, Port_Output, port[idx], descr[idx]);
 
     } while(idx);
 }
@@ -335,7 +335,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.05");
+        report_plugin("Events plugin", "0.06");
 }
 
 static void event_out_cfg (void *data)

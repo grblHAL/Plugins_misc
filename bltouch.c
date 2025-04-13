@@ -113,7 +113,7 @@ static bool bltouch_cmd (BLTCommand_t cmd, uint16_t ms)
 
     if((float)cmd != (servo.get_value ? servo.get_value(&servo) : current_angle)) {
 
-        hal.port.analog_out(servo_port, current_angle = (float)cmd);
+        ioport_analog_out(servo_port, current_angle = (float)cmd);
         if(ms)
             delay_sec(max((float)ms / 1e3f, (float)BLTOUCH_MIN_DELAY / 1e3f), DelayMode_SysSuspend);
     }

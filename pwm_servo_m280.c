@@ -73,7 +73,7 @@ static bool pwm_servo_set_angle(uint8_t servo, float angle)
     //90 degree is the half duty cycle position
     if(servo < n_servos) {
         servos[servo].angle = angle;
-        hal.port.analog_out(servos[servo].port, angle);
+        ioport_analog_out(servos[servo].port, angle);
     }
 
     return servo < n_servos;
@@ -148,7 +148,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("PWM servo", "0.03");
+        report_plugin("PWM servo", "0.04");
 }
 
 static bool init_servo_default (servo_t* servo)
@@ -192,8 +192,7 @@ static bool servo_attach (xbar_t *pwm_pin, uint8_t port, void *data)
                 if(pwm_pin->get_value)
                     memcpy(&servos[n_servos].xport, pwm_pin, sizeof(xbar_t));
 
-                if(hal.port.set_pin_description)
-                    hal.port.set_pin_description(Port_Analog, Port_Output, port, descr[n_servos]);
+                ioport_set_description(Port_Analog, Port_Output, port, descr[n_servos]);
 
                 pwm_servo_set_angle(n_servos++, 0.0f);
             }
