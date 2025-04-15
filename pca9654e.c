@@ -36,7 +36,7 @@
 #define RW_INVERSION 2
 #define RW_CONFIG    3
 
-static uint8_t pca9654_out;
+static uint8_t pca9654_out = 0;
 static io_ports_data_t digital;
 static xbar_t aux_out[8] = {};
 static enumerate_pins_ptr on_enumerate_pins;
@@ -59,7 +59,12 @@ static void digital_out_ll (xbar_t *output, float value)
 {
     static uint8_t last_out = 0;
 
-    if(value != 0.0f)
+    bool on = value != 0.0f;
+
+    if(aux_out[output->id].mode.inverted)
+        on = !on;
+
+    if(on)
         pca9654_out |= (1 << output->pin);
     else
         pca9654_out &= ~(1 << output->pin);
@@ -74,6 +79,24 @@ static void digital_out_ll (xbar_t *output, float value)
 
         i2c_send(PCA9654E_ADDRESS, cmd, 2, true);
     }
+}
+
+static bool digital_out_cfg (xbar_t *output, gpio_out_config_t *config, bool persistent)
+{
+    if(output->id == 1) {
+
+        if(config->inverted != aux_out[output->id].mode.inverted) {
+            aux_out[output->id].mode.inverted = config->inverted;
+            digital_out_ll(output, (float)(!(pca9654_out & (1 << output->pin)) ^ config->inverted));
+        }
+
+        // Open drain not supported
+
+        if(persistent)
+            ioport_save_output_settings(output, config);
+    }
+
+    return output->id < digital.out.n_ports;
 }
 
 static void digital_out (uint8_t port, bool on)
@@ -111,6 +134,7 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
         pin.get_value = digital_out_state;
         pin.set_value = digital_out_ll;
         pin.set_function = set_pin_function;
+        pin.config = digital_out_cfg;
         info = &pin;
     }
 
