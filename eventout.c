@@ -28,6 +28,7 @@
 
 #include "grbl/nvs_buffer.h"
 #include "grbl/protocol.h"
+#include "grbl/task.h"
 
 #ifndef N_EVENTS
 #define N_EVENTS 4
@@ -335,7 +336,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.06");
+        report_plugin("Events plugin", "0.07");
 }
 
 static void event_out_cfg (void *data)
@@ -382,9 +383,9 @@ void event_out_init (void)
         driver_reset = hal.driver_reset;
         hal.driver_reset = onReset;
 
-        protocol_enqueue_foreground_task(event_out_cfg, NULL);
+        task_run_on_startup(event_out_cfg, NULL);
     } else
-        protocol_enqueue_foreground_task(report_warning, "Events plugin failed to initialize!");
+        task_run_on_startup(report_warning, "Events plugin failed to initialize!");
 }
 
 #endif // EVENTOUT_ENABLE

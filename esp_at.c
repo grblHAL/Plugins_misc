@@ -1054,7 +1054,7 @@ static void report_options (bool newopt)
             hal.stream.write("]" ASCII_EOL);
         }
 
-        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.06");
+        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.07");
     }
 }
 
@@ -1095,9 +1095,9 @@ void esp_at_init (void)
 
         settings_register(&setting_details);
 
-        protocol_enqueue_foreground_task(esp_at_startup, NULL);
+        task_run_on_startup(esp_at_startup, NULL);
     } else
-        protocol_enqueue_foreground_task(report_warning, "ESP-AT plugin failed to initialize!");
+        task_run_on_startup(report_warning, "ESP-AT plugin failed to initialize!");
 }
 
 #endif // ESP_AT_ENABLE

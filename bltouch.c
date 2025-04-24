@@ -24,6 +24,7 @@
 #include "grbl/hal.h"
 #include "grbl/nuts_bolts.h"
 #include "grbl/protocol.h"
+#include "grbl/task.h"
 
 // Safety: The probe needs time to recognize the command.
 //         Minimum command delay (ms). Increase if needed.
@@ -306,9 +307,9 @@ void bltouch_init (void)
         grbl.on_probe_completed = onProbeCompleted;
 
         system_register_commands(&bltouch_commands);
-        protocol_enqueue_foreground_task(bltouch_stow, NULL);
+        task_run_on_startup(bltouch_stow, NULL);
     } else
-        protocol_enqueue_foreground_task(report_warning, "No servo PWM output available for BLTouch!");
+        task_run_on_startup(report_warning, "No servo PWM output available for BLTouch!");
 }
 
 #endif // BLTOUCH_ENABLE
