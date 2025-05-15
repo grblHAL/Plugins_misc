@@ -4,7 +4,7 @@
 
 Adds setting `$678` \(toolsetter\) and `$679` \(secondary probe\) for which auxillary ports to use for controlling the probe selection relay(s). Set to `-1` when unused/disabled.  
 Probe selection is via the inbuilt `G65P5Q<n>` macro, `<n>` is the probe id: 0 - primary probe, 1 - toolsetter, 2 - secondary probe.
-The toolsetter can be selected automatically on "@G59.1" toolchanges.
+The toolsetter can be selected automatically on "@G59.3" toolchanges.
 
 Dependencies:
 
