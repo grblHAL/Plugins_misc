@@ -1,5 +1,15 @@
 ## Assorted small plugins
 
+### Probe relay(s)
+
+Adds setting `$678` \(toolsetter\) and `$679` \(secondary probe\) for which auxillary ports to use for controlling the probe selection relay(s). Set to `-1` when unused/disabled.  
+Probe selection is via the inbuilt `G65P5Q<n>` macro, `<n>` is the probe id: 0 - primary probe, 1 - toolsetter, 2 - secondary probe.
+The toolsetter can be selected automatically on "@G59.1" toolchanges.
+
+Dependencies:
+
+The selected driver/board must provide at least one free auxiliary digital output port capable of driving the relay coil, either directly or via a buffer.
+
 ### Feed override
 
 Adds Marlin style [M220](https://marlinfw.org/docs/gcode/M220.html) command for setting feed overrides.
@@ -169,4 +179,4 @@ Credits:
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 ---
-2024-12-20
+2025-05-14
