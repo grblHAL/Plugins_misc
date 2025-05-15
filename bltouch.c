@@ -228,16 +228,26 @@ static bool onProbeStart (axes_signals_t axes, float *target, plan_line_data_t *
 {
     bool ok = on_probe_start == NULL || on_probe_start(axes, target, pl_data);
 
-    if(ok && auto_deploy && !high_speed)
+    if(ok && auto_deploy && !high_speed) {
+
         bltouch_cmd(BLTouch_Deploy, BLTOUCH_DEPLOY_DELAY);
+
+        if(!pl_data->condition.probing_toolsetter && settings.probe.probe2_auto_select)
+            hal.probe.select(Probe_2);
+    }
 
     return ok;
 }
 
 static void onProbeCompleted (void)
 {
-    if(auto_deploy && !high_speed)
+    if(auto_deploy && !high_speed) {
+
         bltouch_stow(NULL);
+
+        if(settings.probe.probe2_auto_select)
+            hal.probe.select(Probe_Default);
+    }
 
     if(on_probe_completed)
         on_probe_completed();
@@ -255,7 +265,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.05");
+        report_plugin(servo_port == 0xFF ? "BLTouch (N/A)" : "BLTouch", "0.06");
 }
 
 static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
@@ -274,6 +284,13 @@ static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
     return false;
 }
 
+void bltouch_start (void)
+{
+    auto_deploy = !(hal.driver_cap.probe2 || hal.driver_cap.toolsetter);
+
+    bltouch_stow(NULL);
+}
+
 void bltouch_init (void)
 {
     static const sys_command_t bltouch_command_list[] = {
@@ -289,7 +306,7 @@ void bltouch_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    if(ioports_enumerate(Port_Analog, Port_Output, (pin_cap_t){ .servo_pwm = On, .claimable = On }, claim_servo, NULL)) {
+    if((hal.driver_cap.bltouch_probe = ioports_enumerate(Port_Analog, Port_Output, (pin_cap_t){ .servo_pwm = On, .claimable = On }, claim_servo, NULL))) {
 
         memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
 
@@ -307,7 +324,7 @@ void bltouch_init (void)
         grbl.on_probe_completed = onProbeCompleted;
 
         system_register_commands(&bltouch_commands);
-        task_run_on_startup(bltouch_stow, NULL);
+        task_run_on_startup(bltouch_start, NULL);
     } else
         task_run_on_startup(report_warning, "No servo PWM output available for BLTouch!");
 }
