@@ -42,7 +42,7 @@
 
 #define EVENT_OPTS { .subgroups = Off, .increment = 1 }
 #define EVENT_OPTS_REBOOT { .subgroups = Off, .increment = 1, .reboot_required = On }
-#define EVENT_TRIGGERS "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold"
+#define EVENT_TRIGGERS "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold,Alarm"
 
 typedef enum {
     Event_Ignore = 0,
@@ -50,7 +50,8 @@ typedef enum {
     Event_Laser,
     Event_Mist,
     Event_Flood,
-    Event_FeedHold
+    Event_FeedHold,
+    Event_Alarm
 } event_trigger_t;
 
 typedef struct {
@@ -81,7 +82,7 @@ static void onReset (void)
     uint_fast16_t idx = n_events;
 
     do {
-        if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger)
+        if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger && plugin_settings.event[idx].trigger != Event_Alarm)
             ioport_digital_out(port[idx], 0);
     } while(idx);
 
@@ -136,8 +137,19 @@ static void onStateChanged (sys_state_t state)
         last_state = state;
 
         do {
-            if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger == Event_FeedHold)
-                ioport_digital_out(port[idx], state == STATE_HOLD);
+            if(port[--idx] != 0xFF)
+              switch(plugin_settings.event[idx].trigger) {
+
+                case Event_FeedHold:
+                    ioport_digital_out(port[idx], state == STATE_HOLD);
+                    break;
+
+                case Event_Alarm:
+                    ioport_digital_out(port[idx], state == STATE_ALARM);
+                    break;
+
+                default: break;
+            }
         } while(idx);
     }
 
@@ -173,8 +185,9 @@ static void register_handlers (void)
                 }
                 break;
 
+            case Event_Alarm:
             case Event_FeedHold:
-                sprintf(descr[idx], "P%d <- %s", port[idx], "Feed hold");
+                sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Alarm ? "Alarm": "Feed hold");
                 if(!on_state_change_attached) {
                     on_state_change_attached = true;
                     on_state_change = grbl.on_state_change;
@@ -336,7 +349,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.07");
+        report_plugin("Events plugin", "0.08");
 }
 
 static void event_out_cfg (void *data)
