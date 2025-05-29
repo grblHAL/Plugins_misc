@@ -284,7 +284,7 @@ static bool claim_servo (xbar_t *servo_pwm, uint8_t port, void *data)
     return false;
 }
 
-void bltouch_start (void)
+void bltouch_start (void *data)
 {
     auto_deploy = !(hal.driver_cap.probe2 || hal.driver_cap.toolsetter);
 
