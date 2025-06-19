@@ -118,6 +118,24 @@ Credits:
 
 Based on idea from [plugin](https://github.com/Sienci-Labs/grblhal-switchbank) by @Sienci-Labs.
 
+### File based tooltable
+
+*** Experimental ***
+
+Adds support for [LinuxCNC format tool table](https://www.linuxcnc.org/docs/devel/html/gcode/tool-compensation.html#sub:tool-table-format) loaded from root file system \(SD card\).
+
+The plugin allows mapping of tools to tool rack/carousel pockets, planned is support for randomized toolchangers.
+
+The file _/linuxcnc/tooltable.tbl_ is used for storing the tool table and it is automatically loaded when the SD card is mounted.
+
+Configuration:
+
+Add/uncomment `#define TOOLTABLE_ENABLE 1` in _my_machine.h_.
+
+Dependencies:
+
+[SD card](https://github.com/grblHAL/Plugin_SD_card/) plugin.
+
 ### PWM Servo
 
 *** Experimental ***
