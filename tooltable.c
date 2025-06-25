@@ -96,19 +96,18 @@ static pocket_id_t getPocket (tool_id_t tool_id)
 static bool writeTools (tool_data_t *tool_data)
 {
     bool ok;
-    uint_fast16_t idx, axis;
+    tool_pocket_t *pocket;
+    vfs_file_t *file;
 
-    for(idx = 0; idx < N_POCKETS; idx++) {
-        if((ok = pockets[idx].tool.tool_id == tool_data->tool_id)) {
-            memcpy(&pockets[idx].tool, tool_data, sizeof(tool_data_t));
-            break;
-        }
+    if((ok = !!(pocket = get_pocket(tool_data->tool_id)))) {
+        if(&pocket->tool != tool_data)
+            memcpy(&pocket->tool, tool_data, sizeof(tool_data_t));
     }
 
-    vfs_file_t *file;
-    char buf[300], tmp[20];
+    if(ok && (ok = !!(file = vfs_open("/linuxcnc/tooltable.tbl", "w")))) {
 
-    if((file = vfs_open("/linuxcnc/tooltable.tbl", "w"))) {
+        char buf[300], tmp[20];
+        uint_fast16_t idx, axis;
 
         for(idx = 1; idx < N_POCKETS; idx++) {
             if(pockets[idx].tool.tool_id >= 0) {
@@ -118,6 +117,10 @@ static bool writeTools (tool_data_t *tool_data)
                         sprintf(tmp, "%s%-.3f ", axis_letter[axis], pockets[idx].tool.offset.values[axis]);
                         strcat(buf, tmp);
                     }
+                }
+                if(pockets[idx].tool.radius != 0.0f) {
+                    sprintf(tmp, "D%-.3f ", pockets[idx].tool.radius * 2.0f);
+                    strcat(buf, tmp);
                 }
                 strcat(buf, "\n");
                 vfs_write(buf, strlen(buf), 1, file);
@@ -191,20 +194,55 @@ static void loadTools (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
                                break;
 
                            case 'X':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[0]))
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[X_AXIS]))
                                    status = Status_GcodeValueOutOfRange;
                                break;
 
                            case 'Y':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[1]))
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[Y_AXIS]))
                                    status = Status_GcodeValueOutOfRange;
                                break;
 
                            case 'Z':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[2]))
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[Z_AXIS]))
                                    status = Status_GcodeValueOutOfRange;
                                break;
-
+#ifdef A_AXIS
+                           case 'A':
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[A_AXIS]))
+                                   status = Status_GcodeValueOutOfRange;
+                               break;
+#endif
+#ifdef B_AXIS
+                           case 'B':
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[B_AXIS]))
+                                   status = Status_GcodeValueOutOfRange;
+                               break;
+#endif
+#ifdef C_AXIS
+                           case 'C':
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[C_AXIS]))
+                                   status = Status_GcodeValueOutOfRange;
+                               break;
+#endif
+#ifdef U_AXIS
+                           case 'U':
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[U_AXIS]))
+                                   status = Status_GcodeValueOutOfRange;
+                               break;
+#endif
+#ifdef V_AXIS
+                           case 'V':
+                               if(!read_float(param, &cc, &pocket.tool.offset.values[V_AXIS]))
+                                   status = Status_GcodeValueOutOfRange;
+                               break;
+#endif
+                           case 'D':
+                               if(!read_float(param, &cc, &pocket.tool.radius))
+                                   status = Status_GcodeValueOutOfRange;
+                               else
+                                   pocket.tool.radius /= 2.0f;
+                               break;
                        }
                        param = strtok(NULL, " ");
                    }
