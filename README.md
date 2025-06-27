@@ -83,7 +83,7 @@ M150 [B<intensity>] [I<pixel>] [K] [P<intensity>] [R<intensity>] [S<strip>] [U<i
     P<intensity> - brightness, 0 - 255.
     S<strip>     - strip index, 0 or 1. Default is 0.
     R<intensity> - red component, 0 - 255.
-    U<intensity> - red component, 0 - 255.
+    U<intensity> - green component, 0 - 255.
 ```
 
 Dependencies:
@@ -197,4 +197,4 @@ Credits:
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 ---
-2025-05-14
+2025-06-26
