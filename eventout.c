@@ -42,7 +42,7 @@
 
 #define EVENT_OPTS { .subgroups = Off, .increment = 1 }
 #define EVENT_OPTS_REBOOT { .subgroups = Off, .increment = 1, .reboot_required = On }
-#define EVENT_TRIGGERS "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold,Alarm"
+#define EVENT_TRIGGERS "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold,Alarm,Spindle at speed"
 
 typedef enum {
     Event_Ignore = 0,
@@ -51,7 +51,8 @@ typedef enum {
     Event_Mist,
     Event_Flood,
     Event_FeedHold,
-    Event_Alarm
+    Event_Alarm,
+    Event_SpindleAtSpeed
 } event_trigger_t;
 
 typedef struct {
@@ -63,9 +64,9 @@ typedef struct {
     event_setting_t event[N_EVENTS];
 } event_settings_t;
 
-static uint8_t n_ports, n_events;
+static uint8_t max_port, n_events;
 static uint8_t port[N_EVENTS];
-static char max_port[4];
+static char max_ports[4];
 static nvs_address_t nvs_address;
 static event_settings_t plugin_settings;
 static on_report_options_ptr on_report_options;
@@ -73,8 +74,10 @@ static driver_reset_ptr driver_reset;
 
 static coolant_set_state_ptr coolant_set_state_ = NULL;
 static on_spindle_programmed_ptr on_spindle_programmed;
+static on_spindle_at_speed_ptr on_spindle_at_speed;
 static on_state_change_ptr on_state_change;
 static bool on_spindle_programmed_attached = false;
+static bool on_spindle_at_speed_attached = false;
 static bool on_state_change_attached = false;
 
 static void onReset (void)
@@ -82,7 +85,7 @@ static void onReset (void)
     uint_fast16_t idx = n_events;
 
     do {
-        if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger && plugin_settings.event[idx].trigger != Event_Alarm)
+        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger && plugin_settings.event[idx].trigger != Event_Alarm)
             ioport_digital_out(port[idx], 0);
     } while(idx);
 
@@ -97,7 +100,20 @@ static void onSpindleProgrammed (spindle_ptrs_t *spindle, spindle_state_t state,
         on_spindle_programmed(spindle, state, rpm, mode);
 
     do {
-        if(port[--idx] != 0xFF && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
+        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == Event_SpindleAtSpeed)
+            ioport_digital_out(port[idx], state.on);
+    } while(idx);
+}
+
+static void onSpindleAtSpeed (spindle_ptrs_t *spindle, spindle_state_t state)
+{
+    uint_fast16_t idx = n_events;
+
+    if(on_spindle_at_speed)
+        on_spindle_at_speed(spindle, state);
+
+    do {
+        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
             ioport_digital_out(port[idx], state.on);
     } while(idx);
 }
@@ -109,7 +125,7 @@ static void onCoolantSetState (coolant_state_t state)
     coolant_set_state_(state);
 
     do {
-        if(port[--idx] != 0xFF)
+        if(port[--idx] != IOPORT_UNASSIGNED)
           switch(plugin_settings.event[idx].trigger) {
 
             case Event_Mist:
@@ -137,7 +153,7 @@ static void onStateChanged (sys_state_t state)
         last_state = state;
 
         do {
-            if(port[--idx] != 0xFF)
+            if(port[--idx] != IOPORT_UNASSIGNED)
               switch(plugin_settings.event[idx].trigger) {
 
                 case Event_FeedHold:
@@ -164,8 +180,9 @@ static void register_handlers (void)
     uint_fast16_t idx = n_events;
 
     do {
-        if(port[--idx] != 0xFF)
+        if(port[--idx] != IOPORT_UNASSIGNED)
           switch(plugin_settings.event[idx].trigger) {
+
             case Event_Laser:
             case Event_Spindle:
                 sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Spindle ? "Spindle enable" : "Laser enable");
@@ -173,6 +190,15 @@ static void register_handlers (void)
                     on_spindle_programmed_attached = true;
                     on_spindle_programmed = grbl.on_spindle_programmed;
                     grbl.on_spindle_programmed = onSpindleProgrammed;
+                }
+                break;
+
+            case Event_SpindleAtSpeed:
+                sprintf(descr[idx], "P%d <- %s", port[idx], "Spindle at speed");
+                if(!on_spindle_at_speed_attached) {
+                    on_spindle_at_speed_attached = true;
+                    on_spindle_at_speed = grbl.on_spindle_at_speed;
+                    grbl.on_spindle_at_speed = onSpindleAtSpeed;
                 }
                 break;
 
@@ -205,80 +231,51 @@ static void register_handlers (void)
     } while(idx);
 }
 
-static setting_id_t normalize_id (setting_id_t setting, uint_fast16_t *idx)
+static status_code_t set_int (setting_id_t id, uint_fast16_t value)
 {
-    *idx = setting % 10;
+    plugin_settings.event[id - Setting_ActionBase].trigger = (event_trigger_t)value;
 
-    return (setting_id_t)(setting - *idx);
+    return Status_OK;
 }
 
-static status_code_t set_int (setting_id_t setting, uint_fast16_t value)
+static uint_fast16_t get_int (setting_id_t id)
 {
-    uint_fast16_t idx;
-    status_code_t status = Status_OK;
-
-    setting = normalize_id(setting, &idx);
-
-    plugin_settings.event[idx].trigger = (event_trigger_t)value;
-
-    return status;
+    return plugin_settings.event[id - Setting_ActionBase].trigger;
 }
 
-static uint_fast16_t get_int (setting_id_t setting)
+static status_code_t set_port (setting_id_t id, float value)
 {
-    uint_fast16_t idx;
-
-    setting = normalize_id(setting, &idx);
-
-    return plugin_settings.event[idx].trigger;
-}
-
-static status_code_t set_port (setting_id_t setting, float value)
-{
-    uint_fast16_t idx;
-    status_code_t status = Status_OK;
-
     if(!isintf(value))
         return Status_BadNumberFormat;
 
-    setting = normalize_id(setting, &idx);
+    if(!ioport_claimable(Port_Digital, Port_Output, (uint8_t)value))
+        return Status_AuxiliaryPortUnavailable;
 
-    plugin_settings.event[idx].port = value < 0.0f ? 0xFF : (uint8_t)value;
+    plugin_settings.event[id - Setting_ActionPortBase].port = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
 
-    return status;
+    return Status_OK;
 }
 
-static float get_port (setting_id_t setting)
+static float get_port (setting_id_t id)
 {
-    float value;
-    uint_fast16_t idx;
-
-    setting = normalize_id(setting, &idx);
-
-    value = plugin_settings.event[idx].port >= n_ports ? -1.0f : (float)plugin_settings.event[idx].port;
-
-    return value;
+    return plugin_settings.event[id - Setting_ActionPortBase].port > max_port ? -1.0f : (float)plugin_settings.event[id - Setting_ActionPortBase].port;
 }
 
 static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
 {
-    return offset < n_ports;
+    return offset < n_events;
 }
 
 static const setting_detail_t event_settings[] = {
     { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, EVENT_TRIGGERS, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
-    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Decimal, "-#0", "-1", max_port, Setting_NonCoreFn, set_port, get_port, is_setting_available, EVENT_OPTS_REBOOT }
+    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Decimal, "-#0", "-1", max_ports, Setting_NonCoreFn, set_port, get_port, is_setting_available, EVENT_OPTS_REBOOT }
 };
-
-#ifndef NO_SETTINGS_DESCRIPTIONS
 
 static const setting_descr_t event_settings_descr[] = {
     { Setting_ActionBase, "Event triggering output port change.\\n\\n"
                           "NOTE: the port can still be controlled by M62-M65 commands even when bound to an event."},
     { Setting_ActionPortBase, "Aux output port number to bind to the associated event trigger. Set to -1 to disable." }
 };
-
-#endif
 
 static void event_settings_save (void)
 {
@@ -289,13 +286,18 @@ static void event_settings_restore (void)
 {
     uint_fast8_t idx;
 
-    if(n_ports == 0 && (n_ports = ioports_unclaimed(Port_Digital, Port_Output)))
-        n_events = min(n_ports, N_EVENTS);
+    if(n_events == 0 && (n_events = ioports_unclaimed(Port_Digital, Port_Output)))
+        n_events = min(n_events, N_EVENTS);
+
+    idx = n_events;
 
     memset(&plugin_settings, 0xFF, sizeof(event_settings_t));
 
-    for(idx = 0; idx < n_events; idx++) {
-        switch(idx) {
+    plugin_settings.event[idx - 1].port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, NULL);
+
+    do {
+
+        switch(--idx) {
 
 #ifdef EVENTOUT_1_ACTION
             case 0:
@@ -322,8 +324,11 @@ static void event_settings_restore (void)
                 plugin_settings.event[idx].trigger = Event_Ignore;
                 break;
         }
-        plugin_settings.event[idx].port = n_ports < (idx + 1) ? 0xFF : idx;
-    }
+
+        if(idx < n_events - 1)
+            plugin_settings.event[idx].port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, uitoa(plugin_settings.event[idx + 1].port));
+
+    } while(idx);
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(event_settings_t), true);
 }
@@ -344,27 +349,36 @@ static bool event_settings_iterator (const setting_detail_t *setting, setting_ou
     return true;
 }
 
+static setting_id_t event_settings_normalize (setting_id_t id)
+{
+    return (id > Setting_ActionBase && id <= Setting_Action9) ||
+            (id > Setting_ActionPortBase && id <= Setting_ActionPort9)
+              ? (setting_id_t)(id - (id % 10))
+              : id;
+}
+
 static void onReportOptions (bool newopt)
 {
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.08");
+        report_plugin("Events plugin", "0.09");
 }
 
 static void event_out_cfg (void *data)
 {
-    if((n_ports = ioports_unclaimed(Port_Digital, Port_Output))) {
+    n_events = ioports_unclaimed(Port_Digital, Port_Output);
 
-        n_events = min(n_ports, N_EVENTS);
-        strcpy(max_port, uitoa(n_ports - 1));
+    if(min(n_events, N_EVENTS)) {
+
+        strcpy(max_ports, uitoa((max_port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, NULL))));
 
         uint_fast16_t idx;
         for(idx = 0; idx < n_events; idx++) {
-            if(plugin_settings.event[idx].port == 0xFF)
-                port[idx] = 0xFF;
+            if(plugin_settings.event[idx].port == IOPORT_UNASSIGNED)
+                port[idx] = IOPORT_UNASSIGNED;
             else
-                port[idx] = min(plugin_settings.event[idx].port, n_ports - 1);
+                port[idx] = min(plugin_settings.event[idx].port, max_port);
         }
 
         register_handlers();
@@ -376,14 +390,13 @@ void event_out_init (void)
     static setting_details_t setting_details = {
         .settings = event_settings,
         .n_settings = sizeof(event_settings) / sizeof(setting_detail_t),
-    #ifndef NO_SETTINGS_DESCRIPTIONS
         .descriptions = event_settings_descr,
         .n_descriptions = sizeof(event_settings_descr) / sizeof(setting_descr_t),
-    #endif
         .save = event_settings_save,
         .load = event_settings_load,
         .restore = event_settings_restore,
-        .iterator = event_settings_iterator
+        .iterator = event_settings_iterator,
+        .normalize = event_settings_normalize
     };
 
     if((nvs_address = nvs_alloc(sizeof(event_settings_t)))) {
