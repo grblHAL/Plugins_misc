@@ -362,14 +362,14 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.09");
+        report_plugin("Events plugin", "0.10");
 }
 
 static void event_out_cfg (void *data)
 {
     n_events = ioports_unclaimed(Port_Digital, Port_Output);
 
-    if(min(n_events, N_EVENTS)) {
+    if((n_events = min(n_events, N_EVENTS))) {
 
         strcpy(max_ports, uitoa((max_port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, NULL))));
 
