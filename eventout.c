@@ -100,7 +100,7 @@ static void onSpindleProgrammed (spindle_ptrs_t *spindle, spindle_state_t state,
         on_spindle_programmed(spindle, state, rpm, mode);
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == Event_SpindleAtSpeed)
+        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
             ioport_digital_out(port[idx], state.on);
     } while(idx);
 }
@@ -113,7 +113,7 @@ static void onSpindleAtSpeed (spindle_ptrs_t *spindle, spindle_state_t state)
         on_spindle_at_speed(spindle, state);
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
+        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == Event_SpindleAtSpeed)
             ioport_digital_out(port[idx], state.on);
     } while(idx);
 }
@@ -362,7 +362,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.10");
+        report_plugin("Events plugin", "0.11");
 }
 
 static void event_out_cfg (void *data)
