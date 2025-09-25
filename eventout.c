@@ -28,6 +28,7 @@
 
 #include "grbl/nvs_buffer.h"
 #include "grbl/protocol.h"
+#include "grbl/strutils.h"
 #include "grbl/task.h"
 
 #ifndef N_EVENTS
@@ -42,7 +43,7 @@
 
 #define EVENT_OPTS { .subgroups = Off, .increment = 1 }
 #define EVENT_OPTS_REBOOT { .subgroups = Off, .increment = 1, .reboot_required = On }
-#define EVENT_TRIGGERS "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold,Alarm,Spindle at speed"
+static const char events[] = "None,Spindle enable (M3/M4),Laser enable (M3/M4),Mist enable (M7),Flood enable (M8),Feed hold,Alarm,Spindle at speed,Motion,Optional stop toggle,Single stepping toggle,Block delete toggle";
 
 typedef enum {
     Event_Ignore = 0,
@@ -52,7 +53,12 @@ typedef enum {
     Event_Flood,
     Event_FeedHold,
     Event_Alarm,
-    Event_SpindleAtSpeed
+    Event_SpindleAtSpeed,
+    Event_Motion,
+    Event_OptionalStop,
+    Event_SingleStepping,
+    Event_BlockDelete,
+    Event_Last
 } event_trigger_t;
 
 typedef struct {
@@ -76,9 +82,11 @@ static coolant_set_state_ptr coolant_set_state_ = NULL;
 static on_spindle_programmed_ptr on_spindle_programmed;
 static on_spindle_at_speed_ptr on_spindle_at_speed;
 static on_state_change_ptr on_state_change;
+static on_control_signals_changed_ptr on_control_signals_changed;
 static bool on_spindle_programmed_attached = false;
 static bool on_spindle_at_speed_attached = false;
 static bool on_state_change_attached = false;
+static bool on_control_signals_changed_attached = false;
 
 static void onReset (void)
 {
@@ -164,6 +172,10 @@ static void onStateChanged (sys_state_t state)
                     ioport_digital_out(port[idx], state == STATE_ALARM);
                     break;
 
+                case Event_Motion:
+                    ioport_digital_out(port[idx], !!(state & (STATE_HOMING|STATE_CYCLE|STATE_JOG)));
+                    break;
+
                 default: break;
             }
         } while(idx);
@@ -173,57 +185,118 @@ static void onStateChanged (sys_state_t state)
         on_state_change(state);
 }
 
+static void signal_out (void *event)
+{
+    switch(plugin_settings.event[(uint32_t)event].trigger) {
+
+        case Event_OptionalStop:
+            ioport_digital_out(port[(uint32_t)event], sys.flags.optional_stop_disable);
+            break;
+
+        case Event_SingleStepping:
+            ioport_digital_out(port[(uint32_t)event], sys.flags.single_block);
+            break;
+
+        case Event_BlockDelete:
+            ioport_digital_out(port[(uint32_t)event], sys.flags.block_delete_enabled);
+            break;
+
+        default: break;
+    }
+}
+
+static void onControlSignalsChanged (control_signals_t signals)
+{
+    static const control_signals_t check = (control_signals_t){ .single_block = On, .stop_disable = On, .block_delete = On };
+
+    if(signals.bits & check.bits) {
+
+        uint_fast16_t idx = n_events;
+
+        do {
+            if(port[--idx] != IOPORT_UNASSIGNED)
+              switch(plugin_settings.event[idx].trigger) {
+
+                  case Event_OptionalStop:
+                  case Event_SingleStepping:
+                  case Event_BlockDelete:
+                    task_add_immediate(signal_out, (void *)(idx));
+                    break;
+
+                default: break;
+            }
+        } while(idx);
+    }
+
+    if(on_control_signals_changed)
+        on_control_signals_changed(signals);
+}
+
 static void register_handlers (void)
 {
-    static char descr[N_EVENTS][25] = {0};
+    static char descr[N_EVENTS][30] = {0};
 
+    char tmp[30];
     uint_fast16_t idx = n_events;
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED)
-          switch(plugin_settings.event[idx].trigger) {
+        if(port[--idx] != IOPORT_UNASSIGNED) {
 
-            case Event_Laser:
-            case Event_Spindle:
-                sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Spindle ? "Spindle enable" : "Laser enable");
-                if(!on_spindle_programmed_attached) {
-                    on_spindle_programmed_attached = true;
-                    on_spindle_programmed = grbl.on_spindle_programmed;
-                    grbl.on_spindle_programmed = onSpindleProgrammed;
-                }
-                break;
-
-            case Event_SpindleAtSpeed:
-                sprintf(descr[idx], "P%d <- %s", port[idx], "Spindle at speed");
-                if(!on_spindle_at_speed_attached) {
-                    on_spindle_at_speed_attached = true;
-                    on_spindle_at_speed = grbl.on_spindle_at_speed;
-                    grbl.on_spindle_at_speed = onSpindleAtSpeed;
-                }
-                break;
-
-            case Event_Mist:
-            case Event_Flood:
-                sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Mist ? "Mist enable" : "Flood enable");
-                if(coolant_set_state_ == NULL) {
-                    coolant_set_state_ = hal.coolant.set_state;
-                    hal.coolant.set_state = onCoolantSetState;
-                }
-                break;
-
-            case Event_Alarm:
-            case Event_FeedHold:
-                sprintf(descr[idx], "P%d <- %s", port[idx], plugin_settings.event[idx].trigger == Event_Alarm ? "Alarm": "Feed hold");
-                if(!on_state_change_attached) {
-                    on_state_change_attached = true;
-                    on_state_change = grbl.on_state_change;
-                    grbl.on_state_change = onStateChanged;
-                }
-                break;
-
-            default:
+            if(plugin_settings.event[idx].trigger == Event_Ignore)
                 sprintf(descr[idx], "P%d", port[idx]);
-                break;
+            else
+                sprintf(descr[idx], "P%d <- %s", port[idx], strgetentry(tmp, events, plugin_settings.event[idx].trigger, ','));
+
+            switch(plugin_settings.event[idx].trigger) {
+
+                case Event_Laser:
+                case Event_Spindle:
+                    if(!on_spindle_programmed_attached) {
+                        on_spindle_programmed_attached = true;
+                        on_spindle_programmed = grbl.on_spindle_programmed;
+                        grbl.on_spindle_programmed = onSpindleProgrammed;
+                    }
+                    break;
+
+                case Event_SpindleAtSpeed:
+                    if(!on_spindle_at_speed_attached) {
+                        on_spindle_at_speed_attached = true;
+                        on_spindle_at_speed = grbl.on_spindle_at_speed;
+                        grbl.on_spindle_at_speed = onSpindleAtSpeed;
+                    }
+                    break;
+
+                case Event_Mist:
+                case Event_Flood:
+                    if(coolant_set_state_ == NULL) {
+                        coolant_set_state_ = hal.coolant.set_state;
+                        hal.coolant.set_state = onCoolantSetState;
+                    }
+                    break;
+
+                case Event_Alarm:
+                case Event_FeedHold:
+                case Event_Motion:
+                    if(!on_state_change_attached) {
+                        on_state_change_attached = true;
+                        on_state_change = grbl.on_state_change;
+                        grbl.on_state_change = onStateChanged;
+                    }
+                    break;
+
+                case Event_OptionalStop:
+                case Event_SingleStepping:
+                case Event_BlockDelete:
+                    task_add_immediate(signal_out, (void *)(idx));
+                    if(!on_control_signals_changed_attached) {
+                        on_control_signals_changed_attached = true;
+                        on_control_signals_changed = grbl.on_control_signals_changed;
+                        grbl.on_control_signals_changed = onControlSignalsChanged;
+                    }
+                    break;
+
+                default: break;
+            }
         }
 
         ioport_set_description(Port_Digital, Port_Output, port[idx], descr[idx]);
@@ -234,6 +307,8 @@ static void register_handlers (void)
 static status_code_t set_int (setting_id_t id, uint_fast16_t value)
 {
     plugin_settings.event[id - Setting_ActionBase].trigger = (event_trigger_t)value;
+
+    register_handlers();
 
     return Status_OK;
 }
@@ -267,7 +342,7 @@ static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t
 }
 
 static const setting_detail_t event_settings[] = {
-    { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, EVENT_TRIGGERS, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
+    { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, events, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
     { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Decimal, "-#0", "-1", max_ports, Setting_NonCoreFn, set_port, get_port, is_setting_available, EVENT_OPTS_REBOOT }
 };
 
@@ -362,7 +437,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.11");
+        report_plugin("Events plugin", "0.12");
 }
 
 static void event_out_cfg (void *data)
