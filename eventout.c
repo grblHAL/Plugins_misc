@@ -70,14 +70,14 @@ typedef struct {
     event_setting_t event[N_EVENTS];
 } event_settings_t;
 
-static uint8_t max_port, n_events;
+static uint8_t n_events;
 static uint8_t port[N_EVENTS];
-static char max_ports[4];
+static io_port_cfg_t d_out;
 static nvs_address_t nvs_address;
 static event_settings_t plugin_settings;
+
 static on_report_options_ptr on_report_options;
 static driver_reset_ptr driver_reset;
-
 static coolant_set_state_ptr coolant_set_state_ = NULL;
 static on_spindle_programmed_ptr on_spindle_programmed;
 static on_spindle_at_speed_ptr on_spindle_at_speed;
@@ -320,20 +320,12 @@ static uint_fast16_t get_int (setting_id_t id)
 
 static status_code_t set_port (setting_id_t id, float value)
 {
-    if(!isintf(value))
-        return Status_BadNumberFormat;
-
-    if(!ioport_claimable(Port_Digital, Port_Output, (uint8_t)value))
-        return Status_AuxiliaryPortUnavailable;
-
-    plugin_settings.event[id - Setting_ActionPortBase].port = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
-
-    return Status_OK;
+    return d_out.set_value(&d_out, &plugin_settings.event[id - Setting_ActionPortBase].port, (pin_cap_t){}, value);
 }
 
 static float get_port (setting_id_t id)
 {
-    return plugin_settings.event[id - Setting_ActionPortBase].port > max_port ? -1.0f : (float)plugin_settings.event[id - Setting_ActionPortBase].port;
+    return d_out.get_value(&d_out, plugin_settings.event[id - Setting_ActionPortBase].port);
 }
 
 static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
@@ -342,8 +334,8 @@ static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t
 }
 
 static const setting_detail_t event_settings[] = {
-    { Setting_ActionBase, Group_AuxPorts, "Event ? trigger", NULL, Format_RadioButtons, events, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
-    { Setting_ActionPortBase, Group_AuxPorts, "Event ? port", NULL, Format_Decimal, "-#0", "-1", max_ports, Setting_NonCoreFn, set_port, get_port, is_setting_available, EVENT_OPTS_REBOOT }
+    { Setting_ActionBase, Group_AuxPorts, "Event out ? trigger", NULL, Format_RadioButtons, events, NULL, NULL, Setting_NonCoreFn, set_int, get_int, is_setting_available, EVENT_OPTS },
+    { Setting_ActionPortBase, Group_AuxPorts, "Event out ? port", NULL, Format_Decimal, "-#0", "-1", d_out.port_maxs, Setting_NonCoreFn, set_port, get_port, is_setting_available, EVENT_OPTS_REBOOT }
 };
 
 static const setting_descr_t event_settings_descr[] = {
@@ -361,49 +353,49 @@ static void event_settings_restore (void)
 {
     uint_fast8_t idx;
 
-    if(n_events == 0 && (n_events = ioports_unclaimed(Port_Digital, Port_Output)))
+    if(n_events == 0 && (n_events = d_out.n_ports))
         n_events = min(n_events, N_EVENTS);
-
-    idx = n_events;
 
     memset(&plugin_settings, 0xFF, sizeof(event_settings_t));
 
-    plugin_settings.event[idx - 1].port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, NULL);
+    if((idx = n_events)) {
 
-    do {
+        plugin_settings.event[idx - 1].port = d_out.get_next(&d_out, n_events == d_out.n_ports ? IOPORT_UNASSIGNED : n_events, NULL, (pin_cap_t){});
 
-        switch(--idx) {
+        do {
+            switch(--idx) {
 
-#ifdef EVENTOUT_1_ACTION
-            case 0:
-                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_1_ACTION;
-                break;
-#endif
-#ifdef EVENTOUT_2_ACTION
-            case 1:
-                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_2_ACTION;
-                break;
-#endif
-#ifdef EVENTOUT_3_ACTION
-            case 2:
-                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_3_ACTION;
-                break;
-#endif
-#ifdef EVENTOUT_4_ACTION
-            case 3:
-                plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_4_ACTION;
-                break;
-#endif
+    #ifdef EVENTOUT_1_ACTION
+                case 0:
+                    plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_1_ACTION;
+                    break;
+    #endif
+    #ifdef EVENTOUT_2_ACTION
+                case 1:
+                    plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_2_ACTION;
+                    break;
+    #endif
+    #ifdef EVENTOUT_3_ACTION
+                case 2:
+                    plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_3_ACTION;
+                    break;
+    #endif
+    #ifdef EVENTOUT_4_ACTION
+                case 3:
+                    plugin_settings.event[idx].trigger = (event_trigger_t)EVENTOUT_4_ACTION;
+                    break;
+    #endif
 
-            default:
-                plugin_settings.event[idx].trigger = Event_Ignore;
-                break;
-        }
+                default:
+                    plugin_settings.event[idx].trigger = Event_Ignore;
+                    break;
+            }
 
-        if(idx < n_events - 1)
-            plugin_settings.event[idx].port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, uitoa(plugin_settings.event[idx + 1].port));
+            if(idx < n_events - 1)
+                plugin_settings.event[idx].port = d_out.get_next(&d_out, plugin_settings.event[idx + 1].port, NULL, (pin_cap_t){});
 
-    } while(idx);
+        } while(idx);
+    }
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&plugin_settings, sizeof(event_settings_t), true);
 }
@@ -437,23 +429,19 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.12");
+        report_plugin("Events plugin", "0.13");
 }
 
 static void event_out_cfg (void *data)
 {
-    n_events = ioports_unclaimed(Port_Digital, Port_Output);
-
-    if((n_events = min(n_events, N_EVENTS))) {
-
-        strcpy(max_ports, uitoa((max_port = ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, NULL))));
+    if((n_events = min(d_out.n_ports, N_EVENTS))) {
 
         uint_fast16_t idx;
         for(idx = 0; idx < n_events; idx++) {
             if(plugin_settings.event[idx].port == IOPORT_UNASSIGNED)
                 port[idx] = IOPORT_UNASSIGNED;
             else
-                port[idx] = min(plugin_settings.event[idx].port, max_port);
+                port[idx] = min(plugin_settings.event[idx].port, d_out.port_max);
         }
 
         register_handlers();
@@ -474,7 +462,7 @@ void event_out_init (void)
         .normalize = event_settings_normalize
     };
 
-    if((nvs_address = nvs_alloc(sizeof(event_settings_t)))) {
+    if(ioports_cfg(&d_out, Port_Digital, Port_Output)->n_ports && (nvs_address = nvs_alloc(sizeof(event_settings_t)))) {
 
         settings_register(&setting_details);
 

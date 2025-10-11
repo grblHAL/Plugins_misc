@@ -46,11 +46,11 @@ typedef struct {
     bool probe_ok;
 } probe_relay_t;
 
-static uint8_t n_ports;
-static char max_port[4];
 static probe_relay_t relay[2];
 static relay_settings_t relay_settings;
+static io_port_cfg_t d_out;
 static nvs_address_t nvs_address;
+
 static on_report_options_ptr on_report_options;
 static relay_settings_t relay_settings;
 static probe_select_ptr hal_probe_select;
@@ -84,10 +84,10 @@ bool onProbeSelect (probe_id_t probe_id)
     if(ok) {
 
         if(relay[0].enabled)
-            hal.port.digital_out(relay[0].port, relay[0].on);
+            ioport_digital_out(relay[0].port, relay[0].on);
 
         if(relay[1].enabled)
-            hal.port.digital_out(relay[1].port, relay[1].on);
+            ioport_digital_out(relay[1].port, relay[1].on);
 
         hal.delay_ms(PROBE_RELAY_DEBOUNCE, NULL); // Delay a bit to let any contact bounce settle.
     }
@@ -97,22 +97,44 @@ bool onProbeSelect (probe_id_t probe_id)
 
 static status_code_t set_port (setting_id_t setting, float value)
 {
-    if(!isintf(value))
-        return Status_BadNumberFormat;
+    status_code_t status = Status_SettingDisabled;
 
-    if(setting == Setting_RelayPortToolsetter)
-        relay_settings.port[0] = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
-    else
-        relay_settings.port[1] = value < 0.0f ? IOPORT_UNASSIGNED : (uint8_t)value;
+    switch(setting) {
 
-    return Status_OK;
+        case Setting_RelayPortToolsetter:
+            status = d_out.set_value(&d_out, &relay_settings.port[0], (pin_cap_t){}, value);
+            break;
+
+        case Setting_RelayPortProbe2:
+            status = d_out.set_value(&d_out, &relay_settings.port[1], (pin_cap_t){}, value);
+            break;
+
+        default:
+            break;
+    }
+
+    return status;
 }
 
 static float get_port (setting_id_t setting)
 {
-    return setting == Setting_RelayPortToolsetter
-            ? (relay_settings.port[0] >= n_ports ? -1.0f : (float)relay_settings.port[0])
-            : (relay_settings.port[1] >= n_ports ? -1.0f : (float)relay_settings.port[1]);
+    float value = 0.0f;
+
+    switch(setting) {
+
+        case Setting_RelayPortToolsetter:
+            value = d_out.get_value(&d_out, relay_settings.port[0]);
+            break;
+
+        case Setting_RelayPortProbe2:
+            value = d_out.get_value(&d_out, relay_settings.port[1]);
+            break;
+
+        default:
+            break;
+    }
+
+    return value;
 }
 
 static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t offset)
@@ -123,18 +145,14 @@ static bool is_setting_available (const setting_detail_t *setting, uint_fast16_t
 }
 
 static const setting_detail_t user_settings[] = {
-    { Setting_RelayPortToolsetter, Group_AuxPorts, "Toolsetter relay port", NULL, Format_Decimal, "-#0", "-1", max_port, Setting_NonCoreFn, set_port, get_port, is_setting_available, { .reboot_required = On } },
-    { Setting_RelayPortProbe2, Group_AuxPorts, "Probe 2 relay port", NULL, Format_Decimal, "-#0", "-1", max_port, Setting_NonCoreFn, set_port, get_port, is_setting_available, { .reboot_required = On } }
+    { Setting_RelayPortToolsetter, Group_AuxPorts, "Toolsetter relay port", NULL, Format_Decimal, "-#0", "-1", d_out.port_maxs, Setting_NonCoreFn, set_port, get_port, is_setting_available, { .reboot_required = On } },
+    { Setting_RelayPortProbe2, Group_AuxPorts, "Probe 2 relay port", NULL, Format_Decimal, "-#0", "-1", d_out.port_maxs, Setting_NonCoreFn, set_port, get_port, is_setting_available, { .reboot_required = On } }
 };
-
-#ifndef NO_SETTINGS_DESCRIPTIONS
 
 static const setting_descr_t relay_settings_descr[] = {
     { Setting_RelayPortToolsetter, "Aux port number to use for toolsetter relay control. Set to -1 to disable." },
     { Setting_RelayPortProbe2, "Aux port number to use for probe 2 relay control. Set to -1 to disable." }
 };
-
-#endif
 
 // Write settings to non volatile storage (NVS).
 static void plugin_settings_save (void)
@@ -146,13 +164,10 @@ static void plugin_settings_restore (void)
 {
     relay_settings.port[0] = relay[0].probe_ok
                               ? IOPORT_UNASSIGNED
-                              : ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, "Toolsetter relay");
-    relay_settings.port[1] = relay[0].probe_ok
+                              : d_out.get_next(&d_out, IOPORT_UNASSIGNED, "Toolsetter relay", (pin_cap_t){});
+    relay_settings.port[1] = relay[1].probe_ok
                               ? IOPORT_UNASSIGNED
-                              : ioport_find_free(Port_Digital, Port_Output, (pin_cap_t){ .claimable = On }, "Probe2 relay");
-
-    if(relay_settings.port[0] == relay_settings.port[1] && relay_settings.port[1] != IOPORT_UNASSIGNED)
-        relay_settings.port[1] -= 1;
+                              : d_out.get_next(&d_out, relay[0].probe_ok ? IOPORT_UNASSIGNED : relay_settings.port[0], "Probe2 relay", (pin_cap_t){});
 
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&relay_settings, sizeof(relay_settings_t), true);
 }
@@ -167,7 +182,7 @@ static void plugin_settings_load (void)
     if(relay[0].probe_ok)
         relay_settings.port[0] = IOPORT_UNASSIGNED;
     else if((relay[0].port = relay_settings.port[0]) != IOPORT_UNASSIGNED &&
-             ioport_claim(Port_Digital, Port_Output, &relay[0].port, "Toolsetter relay"))
+              !!d_out.claim(&d_out, &relay[0].port, "Toolsetter relay", (pin_cap_t){}))
         relay[0].enabled = (hal.driver_cap.toolsetter = On);
     else
         ok = false;
@@ -175,7 +190,7 @@ static void plugin_settings_load (void)
     if(relay[1].probe_ok)
         relay_settings.port[1] = IOPORT_UNASSIGNED;
     else if((relay[1].port = relay_settings.port[1]) != IOPORT_UNASSIGNED &&
-          ioport_claim(Port_Digital, Port_Output, &relay[1].port, "Probe2 relay"))
+            !!d_out.claim(&d_out, &relay[1].port, "Probe2 relay", (pin_cap_t){}))
         relay[1].enabled = (hal.driver_cap.probe2 = On);
     else
         ok = false;
@@ -192,7 +207,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Probe relay", "0.01");
+        report_plugin("Probe relay", "0.02");
 }
 
 void probe_select_init (void)
@@ -200,10 +215,8 @@ void probe_select_init (void)
     static setting_details_t setting_details = {
         .settings = user_settings,
         .n_settings = sizeof(user_settings) / sizeof(setting_detail_t),
-    #ifndef NO_SETTINGS_DESCRIPTIONS
         .descriptions = relay_settings_descr,
         .n_descriptions = sizeof(relay_settings_descr) / sizeof(setting_descr_t),
-    #endif
         .save = plugin_settings_save,
         .load = plugin_settings_load,
         .restore = plugin_settings_restore
@@ -215,11 +228,7 @@ void probe_select_init (void)
     relay[0].probe_ok = hal.driver_cap.toolsetter;
     relay[1].probe_ok = hal.driver_cap.probe2;
 
-    if(ioport_can_claim_explicit() &&
-       (n_ports = ioports_available(Port_Digital, Port_Output)) &&
-        (nvs_address = nvs_alloc(sizeof(relay_settings_t)))) {
-
-        strcpy(max_port, uitoa(n_ports - 1));
+    if(ioports_cfg(&d_out, Port_Digital, Port_Output)->n_ports && (nvs_address = nvs_alloc(sizeof(relay_settings_t)))) {
 
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = onReportOptions;
