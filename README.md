@@ -2,7 +2,7 @@
 
 ### Probe relay(s)
 
-Adds setting `$678` \(toolsetter\) and `$679` \(secondary probe\) for which auxillary ports to use for controlling the probe selection relay(s). Set to `-1` when unused/disabled.  
+Adds setting `$678` \(toolsetter\) and `$679` \(secondary probe\) for which auxiliary ports to use for controlling the probe selection relay(s). Set to `-1` when unused/disabled.  
 Probe selection is via the inbuilt `G65P5Q<n>` macro, `<n>` is the probe id: 0 - primary probe, 1 - toolsetter, 2 - secondary probe.
 The toolsetter can be selected automatically on "@G59.3" toolchanges.
 
@@ -58,6 +58,26 @@ Adds many networking and WiFi settings for configuring mode \(Station, Access Po
 > [!NOTE]
 > The ESP32 is a 3.3V device and pins are not 5V tolerant. If the controller serial port uses 5V signalling add a 5V to 3.3V level shifter, at least for the controller TX line.
 
+### FluidNC I/O Expander
+
+*** Experimental ***
+
+Adds up to 8 external digital inputs and up to 10 external digital outputs usable via `M62`-`M66` and claimable by plugin code.  
+A single on/off style RGB LED is also supported. This can be controlled via`M150` if the _RGB LED strip control_ plugin is enabled.
+
+Dependencies:
+
+Driver and board support for a serial port \(UART\) that is not claimed by a different plugin.
+It implements the [FluidNC Channel I/O protocol](http://wiki.fluidnc.com/en/config/uart_sections#channel-io).   
+Firmware is available for STM32-based breakout boards such as cheap STM32F103 based Red/Bluepills or the ready-made [Airedale I/O Expander](http://wiki.fluidnc.com/en/hardware/official/airedale) board.
+
+Configuration:
+
+Add/uncomment `#define FNC_EXPANDER_ENABLE 1` in _my_machine.h_.
+
+> [!NOTE]
+> Analog output \(PWM\) is currently not supported - may be added later.
+
 ### RGB LED strips
 
 Adds one or two settings, `$536` and `$537`, for setting number of LEDs in NeoPixel/WS2812 LED strips.
@@ -75,7 +95,7 @@ Add/uncomment `#define RGB_LED_ENABLE 1` in _my_machine.h_.
 Adds support for Marlin style [M150 command](https://marlinfw.org/docs/gcode/M150.html).
 
 ```
-M150 [B<intensity>] [I<pixel>] [K] [P<intensity>] [R<intensity>] [S<strip>] [U<intensity>] [W<intensity>]
+M150 [B<intensity>] [I<pixel>] [K] [S<strip>] [P<intensity>] [R<intensity>] [B<intensity>] [U<intensity>] [W<intensity>]
 
     B<intensity> - blue component, 0 - 255.
     I<pixel>     - LED index, 0 - 255. Available if number of LEDs in strip is > 1.
@@ -88,7 +108,7 @@ M150 [B<intensity>] [I<pixel>] [K] [P<intensity>] [R<intensity>] [S<strip>] [U<i
 
 Dependencies:
 
-Driver and board support for LED strips.
+Driver and board support for LED strips or a single on/off style RGB LED.
 
 Configuration:
 
@@ -197,4 +217,4 @@ Credits:
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 ---
-2025-06-26
+2025-11-01
