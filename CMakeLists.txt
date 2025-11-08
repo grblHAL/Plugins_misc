@@ -5,6 +5,7 @@ target_sources(misc_plugins INTERFACE
  ${CMAKE_CURRENT_LIST_DIR}/esp_at.c
  ${CMAKE_CURRENT_LIST_DIR}/eventout.c
  ${CMAKE_CURRENT_LIST_DIR}/feed_override_m220.c
+ ${CMAKE_CURRENT_LIST_DIR}/fnc_expander.c
  ${CMAKE_CURRENT_LIST_DIR}/homing_pulloff.c
  ${CMAKE_CURRENT_LIST_DIR}/pca9654e.c
  ${CMAKE_CURRENT_LIST_DIR}/mcp3221.c

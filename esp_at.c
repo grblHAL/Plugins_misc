@@ -906,12 +906,12 @@ static char *wifi_get_ip (setting_id_t setting)
     return ip ? ip : "";
 }
 
-static const setting_group_detail_t esp_at_groups [] = {
+PROGMEM static const setting_group_detail_t esp_at_groups [] = {
     { Group_Root, Group_Networking, "Networking" },
     { Group_Networking, Group_Networking_Wifi, "WiFi" }
 };
 
-static const setting_detail_t xesp_at_settings[] = {
+PROGMEM static const setting_detail_t xesp_at_settings[] = {
     { Setting_WifiMode, Group_Networking_Wifi, "WiFi Mode", NULL, Format_RadioButtons, "Off,Station,Access Point", NULL, NULL, Setting_NonCore, &esp_at_settings.mode, NULL, NULL },
     { Setting_WiFi_STA_SSID, Group_Networking_Wifi, "WiFi Station (STA) SSID", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, &esp_at_settings.sta.ssid, NULL, NULL },
     { Setting_WiFi_STA_Password, Group_Networking_Wifi, "WiFi Station (STA) Password", NULL, Format_Password, "x(32)", "8", "32", Setting_NonCore, &esp_at_settings.sta.password, NULL, NULL, { .allow_null = On } },
@@ -931,9 +931,7 @@ static const setting_detail_t xesp_at_settings[] = {
     { Setting_NetMask2, Group_Networking, "Netmask (AP)", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, wifi_set_ip, wifi_get_ip, NULL, { .reboot_required = On } }
 };
 
-#ifndef NO_SETTINGS_DESCRIPTIONS
-
-static const setting_descr_t esp_at_settings_descr[] = {
+PROGMEM static const setting_descr_t esp_at_settings_descr[] = {
     { Setting_WifiMode, "WiFi Mode." },
     { Setting_WiFi_STA_SSID, "WiFi Station (STA) SSID." },
     { Setting_WiFi_STA_Password, "WiFi Station (STA) Password." },
@@ -952,8 +950,6 @@ static const setting_descr_t esp_at_settings_descr[] = {
     { Setting_Gateway2, "WiFi Access Point (AP) static gateway address." },
     { Setting_NetMask2, "WiFi Access Point (AP) static netmask." },
 };
-
-#endif
 
 static void esp_at_settings_save (void)
 {
@@ -1065,10 +1061,8 @@ void esp_at_init (void)
         .n_groups = sizeof(esp_at_groups) / sizeof(setting_group_detail_t),
         .settings = xesp_at_settings,
         .n_settings = sizeof(xesp_at_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
         .descriptions = esp_at_settings_descr,
         .n_descriptions = sizeof(esp_at_settings_descr) / sizeof(setting_descr_t),
-#endif
         .save = esp_at_settings_save,
         .load = esp_at_settings_load,
         .restore = esp_at_settings_restore,

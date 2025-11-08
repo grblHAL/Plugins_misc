@@ -72,17 +72,13 @@ static float get_float (setting_id_t setting)
     return value;
 }
 
-static const setting_detail_t plugin_settings[] = {
+PROGMEM static const setting_detail_t plugin_settings[] = {
     { Setting_AxisExtended9 , Group_Axis0, "-axis homing switch pull-off distance", "mm", Format_Decimal, "#0.000", NULL, NULL, Setting_IsLegacyFn, set_axis_setting, get_float, NULL, { .subgroups = On, .increment = 1 } }
 };
 
-#ifndef NO_SETTINGS_DESCRIPTIONS
-
-static const setting_descr_t plugin_settings_descr[] = {
+PROGMEM static const setting_descr_t plugin_settings_descr[] = {
     { Setting_AxisExtended9, "Maximum axis travel distance from homing switch. Determines valid machine space for soft-limits and homing search distances." }
 };
-
-#endif
 
 static void plugin_settings_save (void)
 {
@@ -148,10 +144,8 @@ void homing_pulloff_init (void)
     static setting_details_t setting_details = {
         .settings = plugin_settings,
         .n_settings = sizeof(plugin_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
         .descriptions = plugin_settings_descr,
         .n_descriptions = sizeof(plugin_settings_descr) / sizeof(setting_descr_t),
-#endif
         .save = plugin_settings_save,
         .load = plugin_settings_load,
         .restore = plugin_settings_restore
