@@ -40,12 +40,13 @@
 #include "grbl/gcode.h"
 #include "grbl/stream.h"
 #include "grbl/core_handlers.h"
-
-#define N_POCKETS 25
+#include "grbl/state_machine.h"
 
 static bool loaded = false;
-static tool_pocket_t pockets[N_POCKETS];
+static uint32_t n_pockets = 1;
+static tool_pocket_t pocket0, *pockets = &pocket0;
 static tool_id_t current_tool = 0;
+static char filename[] = "/linuxcnc/tooltable.tbl";
 
 static tool_select_ptr tool_select;
 static on_tool_changed_ptr on_tool_changed;
@@ -57,7 +58,7 @@ static tool_pocket_t *get_pocket (tool_id_t tool_id)
     uint_fast16_t idx;
     tool_pocket_t *pocket = NULL;
 
-    if(tool_id >= 0) for(idx = 0; idx < N_POCKETS; idx++) {
+    if(tool_id >= 0) for(idx = 0; idx < n_pockets; idx++) {
         if(pockets[idx].tool.tool_id == tool_id) {
             pocket = &pockets[idx];
             break;
@@ -67,30 +68,35 @@ static tool_pocket_t *get_pocket (tool_id_t tool_id)
     return pocket;
 }
 
-static tool_data_t *getTool (tool_id_t tool_id)
+static tool_table_entry_t *getTool (tool_id_t tool_id)
 {
-    tool_data_t *tool_data = NULL;
+    static tool_table_entry_t tool = {0};
 
     tool_pocket_t *pocket;
-    if((pocket = get_pocket(tool_id)) && (!settings.macro_atc_flags.random_toolchanger || pocket->pocket_id != -1))
-        tool_data = &pocket->tool;
+    if((pocket = get_pocket(tool_id)) && (!settings.macro_atc_flags.random_toolchanger || pocket->pocket_id != -1)) {
+        tool.data = &pocket->tool;
+        tool.pocket = pocket->pocket_id;
+        tool.name = pocket->name;
+    } else
+        tool.data = NULL;
 
-    return tool_data;
+    return &tool;
 }
 
-static tool_data_t *getToolByIdx (uint32_t idx)
+static tool_table_entry_t *getToolByIdx (uint32_t idx)
 {
-    tool_pocket_t *pocket = idx < N_POCKETS ? &pockets[idx] : NULL;
+    static tool_table_entry_t tool = {0};
 
-    return pocket && pocket->tool.tool_id >= 0 ? &pocket->tool : NULL;
-}
+    tool_pocket_t *pocket = idx < n_pockets ? &pockets[idx] : NULL;
 
-// Read selected tool data from persistent storage.
-static pocket_id_t getPocket (tool_id_t tool_id)
-{
-    tool_pocket_t *pocket = get_pocket(tool_id);
+    if(pocket && pocket->tool.tool_id) {
+        tool.data = &pocket->tool;
+        tool.pocket = pocket->pocket_id;
+        tool.name = pocket->name;
+    } else
+        tool.data = NULL;
 
-    return pocket ? pocket->pocket_id : 0;
+    return &tool;
 }
 
 static bool writeTools (tool_data_t *tool_data)
@@ -104,12 +110,12 @@ static bool writeTools (tool_data_t *tool_data)
             memcpy(&pocket->tool, tool_data, sizeof(tool_data_t));
     }
 
-    if(ok && (ok = !!(file = vfs_open("/linuxcnc/tooltable.tbl", "w")))) {
+    if(ok && (ok = !!(file = vfs_open(filename, "w")))) {
 
-        char buf[300], tmp[20];
+        char buf[400], tmp[20];
         uint_fast16_t idx, axis;
 
-        for(idx = 1; idx < N_POCKETS; idx++) {
+        for(idx = 1; idx < n_pockets; idx++) {
             if(pockets[idx].tool.tool_id >= 0) {
                 sprintf(buf, "P%d T%d ", (uint16_t)pockets[idx].pocket_id, (uint16_t)pockets[idx].tool.tool_id);
                 for(axis = 0; axis < N_AXIS; axis++) {
@@ -122,6 +128,8 @@ static bool writeTools (tool_data_t *tool_data)
                     sprintf(tmp, "D%-.3f ", pockets[idx].tool.radius * 2.0f);
                     strcat(buf, tmp);
                 }
+                if(*pockets[idx].name)
+                    sprintf(strchr(buf, '\0'), "; %s", pockets[idx].name);
                 strcat(buf, "\n");
                 vfs_write(buf, strlen(buf), 1, file);
             }
@@ -137,7 +145,7 @@ static bool clearTools (void)
 {
     uint_fast8_t idx;
 
-    for(idx = 0; idx < N_POCKETS; idx++) {
+    for(idx = 0; idx < n_pockets; idx++) {
         pockets[idx].tool.radius = 0.0f;
         memset(&pockets[idx].tool.offset, 0, sizeof(coord_data_t));
         if(!loaded) {
@@ -149,130 +157,185 @@ static bool clearTools (void)
     return true;
 }
 
-static void loadTools (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
+static status_code_t load_tools (sys_state_t state, char *args)
 {
-    char c, buf[300];
-    uint_fast8_t tools = 0, idx = 0, entry = 0, cc;
+    char c, buf[300] = "";
+    uint_fast8_t n_tools = 0, idx = 0, entry = 0, cc;
     vfs_file_t *file;
     status_code_t status = Status_GcodeUnusedWords;
 
-    if((file = vfs_open("/linuxcnc/tooltable.tbl", "r"))) {
+    args = filename;
+
+    if((file = vfs_open(args, "r"))) {
 
         while(vfs_read(&c, 1, 1, file) == 1) {
-
             if(c == ASCII_CR || c == ASCII_LF) {
-
-                buf[idx] = '\0';
-
-                if(!(*buf == '\0' || *buf == ';')) {
-
-                   char *param = strtok(buf, " ");
-                   tool_pocket_t pocket = { .pocket_id = -1, .tool.tool_id = -1 };
-
-                   status = Status_OK;
-
-                   while(param && status == Status_OK) {
-
-                       cc = 1;
-
-                       switch(CAPS(*param)) {
-
-                           case 'T':
-                               {
-                                   uint32_t tool_id;
-                                   if((status = read_uint(param, &cc, &tool_id)) == Status_OK)
-                                       pocket.tool.tool_id = (tool_id_t)tool_id;
-                               }
-                               break;
-
-                           case 'P':
-                               {
-                                   uint32_t pocket_id;
-                                   if((status = read_uint(param, &cc, &pocket_id)) == Status_OK)
-                                       pocket.pocket_id = (pocket_id_t)pocket_id;
-                               }
-                               break;
-
-                           case 'X':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[X_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-
-                           case 'Y':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[Y_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-
-                           case 'Z':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[Z_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-#ifdef A_AXIS
-                           case 'A':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[A_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-#endif
-#ifdef B_AXIS
-                           case 'B':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[B_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-#endif
-#ifdef C_AXIS
-                           case 'C':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[C_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-#endif
-#ifdef U_AXIS
-                           case 'U':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[U_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-#endif
-#ifdef V_AXIS
-                           case 'V':
-                               if(!read_float(param, &cc, &pocket.tool.offset.values[V_AXIS]))
-                                   status = Status_GcodeValueOutOfRange;
-                               break;
-#endif
-                           case 'D':
-                               if(!read_float(param, &cc, &pocket.tool.radius))
-                                   status = Status_GcodeValueOutOfRange;
-                               else
-                                   pocket.tool.radius /= 2.0f;
-                               break;
-                       }
-                       param = strtok(NULL, " ");
-                   }
-
-                   if(status == Status_OK && pocket.tool.tool_id >= 0 && pocket.pocket_id >= 0) {
-
-                       if(settings.macro_atc_flags.random_toolchanger) {
-                           entry = pocket.pocket_id;
-                       } else
-                           entry++;
-
-                       if(entry < N_POCKETS) {
-                           tools++;
-                           memcpy(&pockets[entry], &pocket, sizeof(tool_pocket_t));
-                       }
-                   }
+                if(*buf) {
+                    *buf = '\0';
+                    n_tools++;
                 }
-
-                idx = 0;
-
-            } else if(idx < sizeof(buf))
-                buf[idx++] = c;
+            } else
+                *buf = c;
         }
 
-        loaded = tools > 0;
+        if(n_tools && (n_tools + 1 > n_pockets || pockets == &pocket0)) {
+            if(pockets != &pocket0)
+                free(pockets);
+            if((pockets = malloc((n_tools + 1) * sizeof(tool_pocket_t))))
+                n_pockets = n_tools + 1;
+            else
+                n_pockets = 1;
+        }
+
+        n_tools = 0;
+
+        if(n_pockets > 1) {
+
+            vfs_seek(file, 0);
+            memset(pockets, 0, n_pockets * sizeof(tool_pocket_t));
+
+            while(vfs_read(&c, 1, 1, file) == 1) {
+
+                if(c == ASCII_CR || c == ASCII_LF) {
+
+                    buf[idx] = '\0';
+
+                    if(!(*buf == '\0' || *buf == ';')) {
+
+                       char *param = strtok(buf, " ");
+                       tool_pocket_t pocket = { .pocket_id = -1, .tool.tool_id = -1 };
+
+                       status = Status_OK;
+
+                       while(param && status == Status_OK) {
+
+                           cc = 1;
+
+                           switch(CAPS(*param)) {
+
+                               case 'T':
+                                   {
+                                       uint32_t tool_id;
+                                       if((status = read_uint(param, &cc, &tool_id)) == Status_OK)
+                                           pocket.tool.tool_id = (tool_id_t)tool_id;
+                                   }
+                                   break;
+
+                               case 'P':
+                                   {
+                                       uint32_t pocket_id;
+                                       if((status = read_uint(param, &cc, &pocket_id)) == Status_OK)
+                                           pocket.pocket_id = (pocket_id_t)pocket_id;
+                                   }
+                                   break;
+
+                               case 'X':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[X_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+
+                               case 'Y':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[Y_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+
+                               case 'Z':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[Z_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+#ifdef A_AXIS
+                               case 'A':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[A_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+#endif
+#ifdef B_AXIS
+                               case 'B':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[B_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+#endif
+#ifdef C_AXIS
+                               case 'C':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[C_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+#endif
+#ifdef U_AXIS
+                               case 'U':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[U_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+#endif
+#ifdef V_AXIS
+                               case 'V':
+                                   if(!read_float(param, &cc, &pocket.tool.offset.values[V_AXIS]))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+#endif
+                               case 'D':
+                                   if(!read_float(param, &cc, &pocket.tool.radius))
+                                       status = Status_GcodeValueOutOfRange;
+                                   else
+                                       pocket.tool.radius /= 2.0f;
+                                   break;
+
+                               case ';':
+                                   strncpy(pocket.name, param + 1, sizeof(pocket.name) - 1);
+                                   while((param = strtok(NULL, " "))) {
+                                       if(strlen(pocket.name) + strlen(param) <= sizeof(pocket.name) - 2) {
+                                           if(*pocket.name)
+                                               strcat(pocket.name, " ");
+                                           strcat(pocket.name, param);
+                                       } else
+                                           continue;
+
+                                   }
+                                   while((param = strchr(pocket.name, '|'))) // make safe for reporting
+                                       *param = '%';
+                                   break;
+                           }
+
+                           param = strtok(NULL, " ");
+                       }
+
+                       if(status == Status_OK && pocket.tool.tool_id >= 0 && pocket.pocket_id >= 0) {
+
+                           if(settings.macro_atc_flags.random_toolchanger) {
+                               entry = pocket.pocket_id;
+                           } else
+                               entry++;
+
+                           if(entry < n_pockets) {
+                               n_tools++;
+                               memcpy(&pockets[entry], &pocket, sizeof(tool_pocket_t));
+                           }
+                       }
+                    }
+
+                    idx = 0;
+
+                } else if(idx < sizeof(buf))
+                    buf[idx++] = c;
+            }
+        } else {
+            // n_tools > 0: not enough memory for tool table - raise alarm?
+            pockets = &pocket0;
+        }
+
+        loaded = n_tools > 0;
 
         vfs_close(file);
     }
 
-    grbl.tool_table.n_tools = loaded ? N_POCKETS : 0;
+    grbl.tool_table.n_tools = loaded ? n_pockets : 0;
+
+    return status == Status_OK ? Status_OK : Status_FileReadError;
+}
+
+static void loadTools (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
+{
+    load_tools(state_get(), filename);
 
     if(on_vfs_mount)
         on_vfs_mount(path, fs, mode);
@@ -311,11 +374,20 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Tool table", "0.01");
+        report_plugin("Tool table", "0.02");
 }
 
 void tooltable_init (void)
 {
+    static const sys_command_t tt_command_list[] = {
+        { "TTLOAD", load_tools, {}, { .str = "(re)load tool table" } }
+     };
+
+    static sys_commands_t tt_commands = {
+        .n_commands = sizeof(tt_command_list) / sizeof(sys_command_t),
+        .commands = tt_command_list
+    };
+
     on_vfs_mount = vfs.on_mount;
     vfs.on_mount = loadTools;
 
@@ -328,12 +400,13 @@ void tooltable_init (void)
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
-    grbl.tool_table.n_tools = N_POCKETS;
+    grbl.tool_table.n_tools = 1;
     grbl.tool_table.get_tool = getTool;
     grbl.tool_table.set_tool = writeTools;
     grbl.tool_table.get_tool_by_idx = getToolByIdx;
-    grbl.tool_table.get_pocket = getPocket;
     grbl.tool_table.clear = clearTools;
+
+    system_register_commands(&tt_commands);
 
     clearTools();
 
