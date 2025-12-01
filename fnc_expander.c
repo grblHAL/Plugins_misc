@@ -34,19 +34,24 @@
 
 #include "grbl/task.h"
 #include "grbl/protocol.h"
+#include "grbl/utf8.h"
 
-#define FNC_ACK     0xB2  // Command accepted character
-#define FNC_NAK     0xB3  // Command rejected character
-#define FNC_RST     0xB4  // Expander restarted character
-#define FNC_LOW     0xC4  // Start of two-character sequence; second is pin number
-#define FNC_HIGH    0xC5  // Start of two-character sequence; second is pin number
-#define FNC_PINBASE 0x80  // Pin number offset in second character
+#define FNC_ACK     0xB2  	// Command accepted character
+#define FNC_NAK     0xB3  	// Command rejected character
+#define FNC_RST     0xB4  	// Expander restarted character
+#define FNC_LOW     0xC4  	// Start of two-character sequence; second is port number
+#define FNC_HIGH    0xC5  	// Start of two-character sequence; second is port number
+#define FNC_PINBASE 0x80  	// Port number offset in second character
+#define FNC_PWMBASE 0x10000	// Offset base for PWM ports
 
+#ifndef FNC_N_AOUT
+#define FNC_N_AOUT 0
+#endif
 #ifndef FNC_N_DIN
 #define FNC_N_DIN 8
 #endif
 #ifndef FNC_N_DOUT
-#define FNC_N_DOUT 10
+#define FNC_N_DOUT (10 - FNC_N_AOUT)
 #endif
 
 #ifndef FNC_STREAM
@@ -59,6 +64,7 @@
 
 #ifndef FNC_BAUD
 #define FNC_BAUD 1000000
+//#define FNC_BAUD 115200
 #endif
 
 static struct {
@@ -74,13 +80,66 @@ static xbar_t aux_in[FNC_N_DIN] = {};
 static xbar_t aux_out[FNC_N_DOUT] = {};
 static io_ports_data_t digital;
 static uint32_t d_out = 0, d_in = 0;
+static bool reset_pending = false;
 static volatile uint32_t event_bits = 0;
 static char expander_id[15];
+static uint8_t ledcmd[] = { FNC_LOW, FNC_PINBASE + 18, FNC_LOW, FNC_PINBASE + 19, FNC_LOW, FNC_PINBASE + 20 };
+#if FNC_N_AOUT
+static xbar_t aux_aout[FNC_N_AOUT] = {};
+static struct {
+	float value;
+	float min_value;
+	float max_value;
+} pwm[FNC_N_AOUT] = {};
+static io_ports_data_t analog;
+#endif
 
+static driver_reset_ptr driver_reset;
 static enumerate_pins_ptr on_enumerate_pins;
 static on_report_options_ptr on_report_options;
 
-static uint8_t ledcmd[] = { FNC_LOW, FNC_PINBASE + 18, FNC_LOW, FNC_PINBASE + 19, FNC_LOW, FNC_PINBASE + 20 };
+#if MPG_ENABLE && FNC_STREAM == MPG_STREAM
+
+static on_mpg_registered_ptr on_mpg_registered;
+static set_enqueue_rt_handler_ptr set_enqueue_rt_handler;
+static enqueue_realtime_command_ptr org_handler;
+
+static bool fnc_response (uint8_t c);
+
+static bool disableRX (bool disable)
+{
+    return true;
+}
+
+static enqueue_realtime_command_ptr setRtHandler (enqueue_realtime_command_ptr handler)
+{
+//    enqueue_realtime_command_ptr fnc_handler = set_enqueue_rt_handler(NULL);
+
+    set_enqueue_rt_handler(handler);
+    set_enqueue_rt_handler(fnc_response);
+
+    return (org_handler = handler);
+}
+
+static void onMpgRegistered (io_stream_t *stream, bool rx_only)
+{
+    org_handler = stream->set_enqueue_rt_handler(fnc_response);
+
+    set_enqueue_rt_handler = stream->set_enqueue_rt_handler;
+    stream->set_enqueue_rt_handler = setRtHandler;
+
+    stream->disable_rx(false);
+    stream->set_baud_rate(FNC_BAUD);
+
+    stream->disable_rx = disableRX;
+    expander.write = stream->write;
+    expander.write_char = stream->write_char;
+    expander.write_n = stream->write_n;
+
+    stream_set_description(stream, "MPG + FNC Expander");
+}
+
+#endif // MPG_ENABLE
 
 static void led_out_masked (uint16_t device, rgb_color_t color, rgb_color_mask_t mask)
 {
@@ -320,84 +379,15 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
     return info;
 }
 
-static void onEnumeratePins (bool low_level, pin_info_ptr pin_info, void *data)
-{
-    static xbar_t pin = {};
-
-    on_enumerate_pins(low_level, pin_info, data);
-
-    uint_fast8_t idx;
-
-    for(idx = 0; idx < digital.in.n_ports; idx ++) {
-
-        memcpy(&pin, &aux_in[idx], sizeof(xbar_t));
-
-        if(!low_level)
-            pin.port = "FNC:";
-
-        pin_info(&pin, data);
-    }
-
-    for(idx = 0; idx < digital.out.n_ports; idx ++) {
-
-        memcpy(&pin, &aux_out[idx], sizeof(xbar_t));
-
-        if(!low_level)
-            pin.port = "FNC:";
-
-        pin_info(&pin, data);
-    }
-}
-
-#if MPG_ENABLE && FNC_STREAM == MPG_STREAM
-
-static on_mpg_registered_ptr on_mpg_registered;
-static set_enqueue_rt_handler_ptr set_enqueue_rt_handler;
-static enqueue_realtime_command_ptr org_handler;
-
-static bool fnc_response (uint8_t c);
-
-static bool disableRX (bool disable)
-{
-    return true;
-}
-
-static enqueue_realtime_command_ptr setRtHandler (enqueue_realtime_command_ptr handler)
-{
-//    enqueue_realtime_command_ptr fnc_handler = set_enqueue_rt_handler(NULL);
-
-    set_enqueue_rt_handler(handler);
-    set_enqueue_rt_handler(fnc_response);
-
-    return (org_handler = handler);
-}
-
-static void onMpgRegistered (io_stream_t *stream, bool rx_only)
-{
-    org_handler = stream->set_enqueue_rt_handler(fnc_response);
-
-    set_enqueue_rt_handler = stream->set_enqueue_rt_handler;
-    stream->set_enqueue_rt_handler = setRtHandler;
-
-    stream->disable_rx(false);
-    stream->set_baud_rate(FNC_BAUD);
-
-    stream->disable_rx = disableRX;
-    expander.write = stream->write;
-    expander.write_char = stream->write_char;
-    expander.write_n = stream->write_n;
-
-    stream_set_description(stream, "MPG + FNC Expander");
-}
-
-#endif // MPG_ENABLE
-
 static ISR_CODE bool ISR_FUNC(fnc_response)(uint8_t c)
 {
     static char prefix = 0;
 
-//    if(c == FNC_RST)
-//        raise alarm...
+    if(c == FNC_RST) {
+    	reset_pending = true;
+    	system_raise_alarm(Alarm_ExpanderException);
+    	return true;
+    }
 
     bool claimed = false;
 
@@ -464,12 +454,97 @@ static void get_aux_in_max (xbar_t *pin, void *fn)
         *(pin_function_t *)fn = max(*(pin_function_t *)fn, pin->function + 1);
 }
 
+#if FNC_N_AOUT
+
+static float pwm_get_value (xbar_t *output)
+{
+    return output->id < analog.out.n_ports ? pwm[output->id].value : -1.0f;
+}
+
+static void pwm_out_ll (xbar_t *output, float value)
+{
+	uint8_t buf[4];
+
+	pwm[output->id].value = constrain(value, pwm[output->id].min_value, pwm[output->id].max_value);
+
+	uint16_t len = utf32_to_utf8(buf, FNC_PWMBASE | (output->pin << 10) | (uint32_t)(pwm[output->id].value * 10.0f));
+	expander.write_n(buf, len);
+}
+
+static bool pwm_out (uint8_t port, float value)
+{
+    if(port < analog.out.n_ports)
+    	pwm_out_ll(&aux_aout[port], value);
+
+    return port < analog.out.n_ports;
+}
+
+static bool init_pwm (xbar_t *output, pwm_config_t *config, bool persistent)
+{
+    char buf[40];
+
+    sprintf(buf, "[EXP:io.%d=pwm,frequency=%ld]\n", output->pin, (uint32_t)config->freq_hz);
+    expander.write(buf);
+
+    pwm[output->id].min_value = config->min_value;
+    pwm[output->id].max_value = config->max_value;
+
+    aux_aout[output->id].mode.pwm = !config->servo_mode;
+    aux_aout[output->id].mode.servo_pwm = config->servo_mode;
+
+    pwm_out(output->id, config->min_value);
+
+    return true;
+}
+
+static bool analog_set_function (xbar_t *port, pin_function_t function)
+{
+    if(port->mode.output)
+    	aux_aout[port->id].id = function;
+
+    return true;
+}
+
+static xbar_t *analog_get_pin_info (io_port_direction_t dir, uint8_t port)
+{
+    static xbar_t pin;
+
+    xbar_t *info = NULL;
+
+    if(dir == Port_Output && port < analog.out.n_ports) {
+        memcpy(&pin, &aux_aout[port], sizeof(xbar_t));
+		pin.config = init_pwm;
+		pin.get_value = pwm_get_value;
+	    pin.set_value = pwm_out_ll;
+	    pin.set_function = analog_set_function;
+		info = &pin;
+    }
+
+    return info;
+}
+
+static void analog_set_pin_description (io_port_direction_t dir, uint8_t port, const char *description)
+{
+    if(dir == Port_Output && port < analog.out.n_ports)
+    	aux_aout[port].description = description;
+}
+
+static void get_aux_aout_max (xbar_t *pin, void *fn)
+{
+    if(pin->group == PinGroup_AuxOutputAnalog)
+        *(pin_function_t *)fn = max(*(pin_function_t *)fn, pin->function + 1);
+}
+
+#endif // FNC_N_AOUT
+
 static void fnc_config (void *data)
 {
     if(expander.write) {
 
         char buf[40];
         uint_fast8_t idx;
+
+        reset_pending = false;
 
         for(idx = 0; idx < digital.in.n_ports; idx++) {
             if(aux_in[idx].port) {
@@ -484,7 +559,35 @@ static void fnc_config (void *data)
                 expander.write(buf);
             }
         }
+
+#if FNC_N_AOUT
+
+        xbar_t *pin;
+        pwm_config_t config = {
+            .freq_hz = 5000.0f,
+            .min = 0.0f,
+            .max = 100.0f,
+            .off_value = 0.0f,
+            .min_value = 0.0f,
+            .max_value = 100.0f,
+            .invert = Off
+        };
+
+        for(idx = 0; idx < analog.out.n_ports; idx++) {
+            if((pin = analog_get_pin_info(Port_Output, idx)))
+                pin->config(pin, &config, false);
+        }
+
+#endif // FNC_N_AOUT
     }
+}
+
+static void driverReset (void)
+{
+    driver_reset();
+
+    if(reset_pending)
+    	task_add_immediate(fnc_config, NULL);
 }
 
 static bool fnc_init (const io_stream_t *stream)
@@ -497,7 +600,7 @@ static bool fnc_init (const io_stream_t *stream)
     char buf[50], *p = buf;
 
     stream->set_enqueue_rt_handler(stream_buffer_all);
-    stream->write("\n[EXP:ID]\n");
+    stream->write("\n[MSG:RST]\n[EXP:ID]\n");
 
     while(stream->get_tx_buffer_count());
 
@@ -510,11 +613,12 @@ static bool fnc_init (const io_stream_t *stream)
                 if(c == '\n') {
                     *p = '\0';
                     p = NULL;
+                    t1=0;
                 } else
                     *p++ = c;
             }
         }
-        if((t2 = hal.get_elapsed_ticks()) > 0 && t2 - t1 > 5) // something is resetting the systick timer...
+        if((t2 = hal.get_elapsed_ticks()) > t1 && t2 - t1 > 5) // something is resetting the systick timer...
             break;
     } while(t1 != 0);
 
@@ -527,6 +631,10 @@ static bool fnc_init (const io_stream_t *stream)
 #if MPG_ENABLE && FNC_STREAM == MPG_STREAM
         stream_close(stream);
 #else
+
+        driver_reset = hal.driver_reset;
+        hal.driver_reset = driverReset;
+
         expander.write = stream->write;
         expander.write_char = stream->write_char;
         expander.write_n = stream->write_n;
@@ -537,6 +645,47 @@ static bool fnc_init (const io_stream_t *stream)
         stream_close(stream);
 
     return t1 == 0;
+}
+
+static void onEnumeratePins (bool low_level, pin_info_ptr pin_info, void *data)
+{
+    static xbar_t pin = {};
+
+    on_enumerate_pins(low_level, pin_info, data);
+
+    uint_fast8_t idx;
+
+    for(idx = 0; idx < digital.in.n_ports; idx ++) {
+
+        memcpy(&pin, &aux_in[idx], sizeof(xbar_t));
+
+        if(!low_level)
+            pin.port = "FNC:";
+
+        pin_info(&pin, data);
+    }
+
+    for(idx = 0; idx < digital.out.n_ports; idx ++) {
+
+        memcpy(&pin, &aux_out[idx], sizeof(xbar_t));
+
+        if(!low_level)
+            pin.port = "FNC:";
+
+        pin_info(&pin, data);
+    }
+
+#if FNC_N_AOUT
+    for(idx = 0; idx < analog.out.n_ports; idx ++) {
+
+        memcpy(&pin, &aux_aout[idx], sizeof(xbar_t));
+
+        if(!low_level)
+            pin.port = "FNC:";
+
+        pin_info(&pin, data);
+    }
+#endif
 }
 
 static void onReportOptions (bool newopt)
@@ -602,6 +751,37 @@ void fnc_expander_init (void)
         }
 
         ioports_add_digital(&dports);
+
+#if FNC_N_AOUT
+
+        io_analog_t aports = {
+            .ports = &analog,
+            .analog_out = pwm_out,
+            .get_pin_info = analog_get_pin_info,
+            .set_pin_description = analog_set_pin_description
+        };
+
+        pin_function_t aux_aout_base = Output_Analog_Aux0;
+        hal.enumerate_pins(false, get_aux_aout_max, &aux_out_base);
+
+        analog.out.n_ports = max(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
+
+        for(idx = 0; idx < analog.out.n_ports; idx++) {
+            aux_aout[idx].id = idx;
+            aux_aout[idx].pin = digital.out.n_ports + idx + 8;
+            aux_aout[idx].port = &d_out;
+            aux_aout[idx].function = aux_aout_base + idx;
+            aux_aout[idx].group = PinGroup_AuxOutputAnalog;
+            aux_aout[idx].cap.output = On;
+            aux_aout[idx].cap.pwm = On;
+            aux_aout[idx].cap.external = On;
+            aux_aout[idx].cap.claimable = On;
+            aux_aout[idx].mode.output = On;
+        }
+
+        ioports_add_analog(&aports);
+
+#endif // FNC_N_AOUT
 
         on_enumerate_pins = hal.enumerate_pins;
         hal.enumerate_pins = onEnumeratePins;
