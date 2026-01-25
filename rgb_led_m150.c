@@ -27,14 +27,12 @@
 
 #if RGB_LED_ENABLE == 2
 
-#if N_AXIS > 4 || AXIS_REMAP_ABC2UVW || LATHE_UVW_OPTION
+#if IS_AXIS_LETTER('B')
 #error "RGB LED plugin is not supported in this configuration!"
 #endif
 
 #include <math.h>
 #include <string.h>
-
-#include "rgb_led_strips.c"
 
 static bool is_neopixels;
 static user_mcode_ptrs_t user_mcode;
@@ -206,7 +204,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(hal.rgb0.out
                        ? "RGB LED strips (M150)"
-                       : "RGB LED strips (N/A)", "0.05");
+                       : "RGB LED strips (N/A)", "0.07");
 }
 
 void rgb_led_init (void)
@@ -219,7 +217,7 @@ void rgb_led_init (void)
         grbl.user_mcode.validate = mcode_validate;
         grbl.user_mcode.execute = mcode_execute;
 
-        is_neopixels = rgb_led_settings_register();
+        is_neopixels = hal.rgb0.flags.is_strip || hal.rgb1.flags.is_strip;
     }
 
     on_report_options = grbl.on_report_options;

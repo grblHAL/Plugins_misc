@@ -78,18 +78,6 @@ Add/uncomment `#define FNC_EXPANDER_ENABLE 1` in _my_machine.h_.
 > [!NOTE]
 > Analog output \(PWM\) is currently not supported - may be added later.
 
-### RGB LED strips
-
-Adds one or two settings, `$536` and `$537`, for setting number of LEDs in NeoPixel/WS2812 LED strips.
-
-Dependencies:
-
-Driver and board support for LED strips.
-
-Configuration:
-
-Add/uncomment `#define RGB_LED_ENABLE 1` in _my_machine.h_.
-
 ### RGB LED strip control
 
 Adds support for Marlin style [M150 command](https://marlinfw.org/docs/gcode/M150.html).
@@ -217,4 +205,4 @@ Credits:
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 ---
-2025-11-01
+2026-01-24
