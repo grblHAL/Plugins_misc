@@ -164,7 +164,7 @@ static uint16_t atStreamTxCount (void)
 //
 // Writes a character to the output stream, blocks if buffer full
 //
-static bool atStreamPutC (const char c)
+static bool atStreamPutC (const uint8_t c)
 {
     return at_cmd_stream.write_char(c);
 }
@@ -174,7 +174,7 @@ static bool atStreamPutC (const char c)
 //
 static void atStreamWriteS (const char *s)
 {
-    char c, *ptr = (char *)s;
+    uint8_t c, *ptr = (uint8_t *)s;
 
     while((c = *ptr++) != '\0')
         atStreamPutC(c);
@@ -183,9 +183,9 @@ static void atStreamWriteS (const char *s)
 //
 // Writes a number of characters from string to the output stream followed by EOL
 //
-static void atStreamWrite (const char *s, uint16_t length)
+static void atStreamWrite (const uint8_t *s, uint16_t length)
 {
-    char *ptr = (char *)s;
+    uint8_t *ptr = (uint8_t *)s;
 
     while(length--)
         atStreamPutC(*ptr++);
@@ -194,7 +194,7 @@ static void atStreamWrite (const char *s, uint16_t length)
 //
 // atStreamGetC - returns -1 if no data available
 //
-static int16_t atStreamGetC (void)
+static int32_t atStreamGetC (void)
 {
     uint_fast16_t tail = rxbuf.tail;    // Get buffer pointer
 
@@ -204,7 +204,7 @@ static int16_t atStreamGetC (void)
     char data = rxbuf.data[tail];       // Get next character
     rxbuf.tail = BUFNEXT(tail, rxbuf);  // and update pointer
 
-    return (int16_t)data;
+    return (int32_t)data;
 }
 
 static bool atStreamSuspendInput (bool suspend)
@@ -212,7 +212,7 @@ static bool atStreamSuspendInput (bool suspend)
     return stream_rx_suspend(&rxbuf, suspend);
 }
 
-static bool atStreamEnqueueRtCommand (char c)
+static bool atStreamEnqueueRtCommand (uint8_t c)
 {
     return enqueue_realtime_command(c);
 }
@@ -368,7 +368,7 @@ static void close_session (void *data)
     at_cmd_stream.reset_read_buffer();
 }
 
-static ISR_CODE bool ISR_FUNC(esp_at_receive)(char c)
+static ISR_CODE bool ISR_FUNC(esp_at_receive)(uint8_t c)
 {
     static const char *cmds[] =
     {
@@ -1050,7 +1050,7 @@ static void report_options (bool newopt)
             hal.stream.write("]" ASCII_EOL);
         }
 
-        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.07");
+        report_plugin(esp_at_running ? "ESP-AT" : "ESP-AT (disabled)", "0.08");
     }
 }
 

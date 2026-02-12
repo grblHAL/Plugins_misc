@@ -6,7 +6,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2025 Terje Io
+  Copyright (c) 2025-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -340,9 +340,9 @@ static bool register_interrupt_handler (uint8_t port, uint8_t user_port, pin_irq
 static bool set_pin_function (xbar_t *port, pin_function_t function)
 {
     if(port->mode.input)
-        aux_in[port->id].id = function;
+        aux_in[port->id].function = function;
     else
-        aux_out[port->id].id = function;
+        aux_out[port->id].function = function;
 
     return true;
 }
@@ -695,7 +695,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(expander.write
                        ? expander_id
-                       : "FNC Expander (N/A)", "0.01");
+                       : "FNC Expander (N/A)", "0.02");
 }
 
 void fnc_expander_init (void)
