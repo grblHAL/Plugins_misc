@@ -45,7 +45,7 @@
 #define FNC_PWMBASE 0x10000	// Offset base for PWM ports
 
 #ifndef FNC_N_AOUT
-#define FNC_N_AOUT 0
+#define FNC_N_AOUT 4
 #endif
 #ifndef FNC_N_DIN
 #define FNC_N_DIN 8
@@ -85,6 +85,7 @@ static volatile uint32_t event_bits = 0;
 static char expander_id[15];
 static uint8_t ledcmd[] = { FNC_LOW, FNC_PINBASE + 18, FNC_LOW, FNC_PINBASE + 19, FNC_LOW, FNC_PINBASE + 20 };
 #if FNC_N_AOUT
+static uint32_t aout_pin_base;
 static xbar_t aux_aout[FNC_N_AOUT] = {};
 static struct {
 	float value;
@@ -172,14 +173,14 @@ static void digital_out_ll (xbar_t *output, float value)
         on = !on;
 
     if(on)
-        *(uint32_t *)output->port |= (1 << output->pin);
+        *(uint32_t *)output->port |= (1 << output->id);
     else
-        *(uint32_t *)output->port &= ~(1 << output->pin);
+        *(uint32_t *)output->port &= ~(1 << output->id);
 
     if(last_out != *(uint32_t *)output->port) {
         last_out = *(uint32_t *)output->port;
         expander.write_char(on ? FNC_HIGH : FNC_LOW);
-        expander.write_char(FNC_PINBASE + output->pin);
+        expander.write_char(FNC_PINBASE + output->id + 8);
     }
 }
 
@@ -189,7 +190,7 @@ static bool digital_out_cfg (xbar_t *output, gpio_out_config_t *config, bool per
 
         if(config->inverted != aux_out[output->id].mode.inverted) {
             aux_out[output->id].mode.inverted = config->inverted;
-            digital_out_ll(output, (float)(!(*(uint32_t *)output->port & (1 << output->pin)) ^ config->inverted));
+            digital_out_ll(output, (float)(!(*(uint32_t *)output->port & (1 << output->id)) ^ config->inverted));
         }
 
         // Open drain not supported
@@ -212,7 +213,7 @@ static float digital_out_state (xbar_t *output)
     float value = -1.0f;
 
     if(output->id < digital.out.n_ports)
-        value = (float)((*(uint32_t *)output->port & (1 << output->pin)) != 0);
+        value = (float)((*(uint32_t *)output->port & (1 << output->id)) != 0);
 
     return value;
 }
@@ -229,7 +230,7 @@ static bool digital_in_cfg (xbar_t *input, gpio_in_config_t *config, bool persis
             char buf[40];
 
             aux_in[input->id].mode.pull_mode = config->pull_mode;
-            sprintf(buf, "[EXP:io.%d=in,high,%s]\n", input->pin, config->pull_mode == PullMode_Down ? "pd" : "pu");
+            sprintf(buf, "[EXP:io.%d=in,high,%s]\n", input->id, config->pull_mode == PullMode_Down ? "pd" : "pu");
             expander.write(buf);
         }
 
@@ -247,7 +248,7 @@ static float digital_in_state (xbar_t *input)
     float value = -1.0f;
 
     if(input->id < digital.in.n_ports)
-        value = (float)(((*(uint32_t *)input->port & (1 << input->pin)) != 0) ^ aux_in[input->id].mode.inverted);
+        value = (float)(((*(uint32_t *)input->port & (1 << input->id)) != 0) ^ aux_in[input->id].mode.inverted);
 
     return value;
 }
@@ -255,10 +256,10 @@ static float digital_in_state (xbar_t *input)
 inline static __attribute__((always_inline)) int32_t get_input (const xbar_t *input, wait_mode_t wait_mode, float timeout)
 {
     if(wait_mode == WaitMode_Immediate)
-        return !!(*(uint32_t *)input->port & (1 << input->pin)) ^ input->mode.inverted;
+        return !!(*(uint32_t *)input->port & (1 << input->id)) ^ input->mode.inverted;
 
     int32_t value = -1;
-    uint32_t mask = 1 << input->pin;
+    uint32_t mask = 1 << input->id;
     uint_fast16_t delay = (uint_fast16_t)ceilf((1000.0f / 50.0f) * timeout) + 1;
 
     if(wait_mode == WaitMode_Rise || wait_mode == WaitMode_Fall) {
@@ -363,12 +364,14 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Input && port < digital.in.n_ports) {
         memcpy(&pin, &aux_in[port], sizeof(xbar_t));
+        pin.pin += digital.in.n_start;
         pin.get_value = digital_in_state;
         pin.set_function = set_pin_function;
         pin.config = digital_in_cfg;
         info = &pin;
     } else if(dir == Port_Output && port < digital.out.n_ports) {
         memcpy(&pin, &aux_out[port], sizeof(xbar_t));
+        pin.pin += digital.out.n_start;
         pin.get_value = digital_out_state;
         pin.set_value = digital_out_ll;
         pin.set_function = set_pin_function;
@@ -400,7 +403,7 @@ static ISR_CODE bool ISR_FUNC(fnc_response)(uint8_t c)
 
         if(input->port) {
 
-            uint32_t event = 0, bit = 1 << input->pin;
+            uint32_t event = 0, bit = 1 << input->id;
 
             switch(irq[input->id].mode) {
 
@@ -467,7 +470,7 @@ static void pwm_out_ll (xbar_t *output, float value)
 
 	pwm[output->id].value = constrain(value, pwm[output->id].min_value, pwm[output->id].max_value);
 
-	uint16_t len = utf32_to_utf8(buf, FNC_PWMBASE | (output->pin << 10) | (uint32_t)(pwm[output->id].value * 10.0f));
+	uint16_t len = utf32_to_utf8(buf, FNC_PWMBASE | ((output->id + aout_pin_base) << 10) | (uint32_t)(pwm[output->id].value * 10.0f));
 	expander.write_n(buf, len);
 }
 
@@ -483,7 +486,7 @@ static bool init_pwm (xbar_t *output, pwm_config_t *config, bool persistent)
 {
     char buf[40];
 
-    sprintf(buf, "[EXP:io.%d=pwm,frequency=%ld]\n", output->pin, (uint32_t)config->freq_hz);
+    sprintf(buf, "[EXP:io.%d=pwm,frequency=%ld]\n", output->id + aout_pin_base, (uint32_t)config->freq_hz);
     expander.write(buf);
 
     pwm[output->id].min_value = config->min_value;
@@ -548,14 +551,14 @@ static void fnc_config (void *data)
 
         for(idx = 0; idx < digital.in.n_ports; idx++) {
             if(aux_in[idx].port) {
-                sprintf(buf, "[EXP:io.%d=in,high,pu]\n", aux_in[idx].pin);
+                sprintf(buf, "[EXP:io.%d=in,high,pu]\n", aux_in[idx].id);
                 expander.write(buf);
             }
         }
 
         for(idx = 0; idx < digital.out.n_ports; idx++) {
             if(aux_out[idx].port) {
-                sprintf(buf, "[EXP:io.%d=out]\n", aux_out[idx].pin);
+                sprintf(buf, "[EXP:io.%d=out]\n", aux_out[idx].id + 8);
                 expander.write(buf);
             }
         }
@@ -669,6 +672,8 @@ static void onEnumeratePins (bool low_level, pin_info_ptr pin_info, void *data)
 
         memcpy(&pin, &aux_out[idx], sizeof(xbar_t));
 
+        pin.pin += 8;
+
         if(!low_level)
             pin.port = "FNC:";
 
@@ -682,6 +687,8 @@ static void onEnumeratePins (bool low_level, pin_info_ptr pin_info, void *data)
 
         if(!low_level)
             pin.port = "FNC:";
+
+        pin.pin += aout_pin_base;
 
         pin_info(&pin, data);
     }
@@ -740,7 +747,7 @@ void fnc_expander_init (void)
 
         for(idx = 0; idx < digital.out.n_ports; idx++) {
             aux_out[idx].id = idx;
-            aux_out[idx].pin = idx + 8;
+            aux_out[idx].pin = idx;
             aux_out[idx].port = &d_out;
             aux_out[idx].function = aux_out_base + idx;
             aux_out[idx].group = PinGroup_AuxOutput;
@@ -764,11 +771,12 @@ void fnc_expander_init (void)
         pin_function_t aux_aout_base = Output_Analog_Aux0;
         hal.enumerate_pins(false, get_aux_aout_max, &aux_out_base);
 
+        aout_pin_base = digital.out.n_ports + 8;
         analog.out.n_ports = max(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
 
         for(idx = 0; idx < analog.out.n_ports; idx++) {
             aux_aout[idx].id = idx;
-            aux_aout[idx].pin = digital.out.n_ports + idx + 8;
+            aux_aout[idx].pin = idx;
             aux_aout[idx].port = &d_out;
             aux_aout[idx].function = aux_aout_base + idx;
             aux_aout[idx].group = PinGroup_AuxOutputAnalog;
