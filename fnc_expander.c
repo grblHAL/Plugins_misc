@@ -45,7 +45,7 @@
 #define FNC_PWMBASE 0x10000	// Offset base for PWM ports
 
 #ifndef FNC_N_AOUT
-#define FNC_N_AOUT 4
+#define FNC_N_AOUT 0
 #endif
 #ifndef FNC_N_DIN
 #define FNC_N_DIN 8
