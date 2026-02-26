@@ -4,7 +4,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2025 Terje Io
+  Copyright (c) 2025-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -35,10 +35,8 @@
 #include "sdcard/sdcard.h"
 #endif
 
-#include "grbl/vfs.h"
 #include "grbl/strutils.h"
 #include "grbl/gcode.h"
-#include "grbl/stream.h"
 #include "grbl/core_handlers.h"
 #include "grbl/state_machine.h"
 
@@ -341,6 +339,11 @@ static void loadTools (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
         on_vfs_mount(path, fs, mode);
 }
 
+static status_code_t reloadTools (void)
+{
+    return load_tools(state_get(), filename);
+}
+
 static void onToolSelect (tool_data_t *tool, bool next)
 {
     if(!next)
@@ -374,7 +377,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Tool table", "0.02");
+        report_plugin("Tool table", "0.03");
 }
 
 void tooltable_init (void)
@@ -405,6 +408,7 @@ void tooltable_init (void)
     grbl.tool_table.set_tool = writeTools;
     grbl.tool_table.get_tool_by_idx = getToolByIdx;
     grbl.tool_table.clear = clearTools;
+    grbl.tool_table.reload = reloadTools;
 
     system_register_commands(&tt_commands);
 

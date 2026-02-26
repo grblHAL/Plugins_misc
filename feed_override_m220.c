@@ -51,16 +51,23 @@ static status_code_t mcode_validate (parser_block_t *gc_block)
                      gc_block->values.s > (gc_block->words.r ? 100.0f : (float)MAX_FEED_RATE_OVERRIDE))
                 state = Status_GcodeValueOutOfRange;
         }
+
         if(state == Status_OK && gc_block->words.b) {
+#ifdef B_AXIS
+            if(!isnan(gc_block->values.xyz[B_AXIS]))
+                state = Status_BadNumberFormat;
+#else
             if(!isnan(gc_block->values.b))
                 state = Status_BadNumberFormat;
+#endif
         }
+
         if(state == Status_OK && gc_block->words.r) {
             if(!isnan(gc_block->values.r))
                 state = Status_BadNumberFormat;
         }
-        gc_block->words.b = gc_block->words.r = gc_block->words.s = Off;
 
+        gc_block->words.b = gc_block->words.r = gc_block->words.s = Off;
     }
 
     return state == Status_Unhandled && user_mcode.validate ? user_mcode.validate(gc_block) : state;
@@ -95,7 +102,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Feed override", "0.01");
+        report_plugin("Feed override", "0.02");
 }
 
 void feed_override_init (void)
