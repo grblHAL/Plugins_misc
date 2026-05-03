@@ -30,6 +30,7 @@
 #if FNC_EXPANDER_ENABLE
 
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 
 #include "grbl/task.h"
@@ -43,6 +44,9 @@
 #define FNC_HIGH    0xC5  	// Start of two-character sequence; second is port number
 #define FNC_PINBASE 0x80  	// Port number offset in second character
 #define FNC_PWMBASE 0x10000	// Offset base for PWM ports
+
+static bool fnc_attached = false;
+static bool fnc_retry_scheduled = false;
 
 #ifndef FNC_N_AOUT
 #define FNC_N_AOUT 0
@@ -98,6 +102,9 @@ static io_ports_data_t analog;
 static driver_reset_ptr driver_reset;
 static enumerate_pins_ptr on_enumerate_pins;
 static on_report_options_ptr on_report_options;
+static bool fnc_registered = false;
+
+static void fnc_register_ports (void);
 
 #if MPG_ENABLE && FNC_STREAM == MPG_STREAM
 
@@ -186,7 +193,7 @@ static void digital_out_ll (xbar_t *output, float value)
 
 static bool digital_out_cfg (xbar_t *output, gpio_out_config_t *config, bool persistent)
 {
-    if(output->id == 1) {
+    if(output->id < digital.out.n_ports) {
 
         if(config->inverted != aux_out[output->id].mode.inverted) {
             aux_out[output->id].mode.inverted = config->inverted;
@@ -388,7 +395,8 @@ static ISR_CODE bool ISR_FUNC(fnc_response)(uint8_t c)
 
     if(c == FNC_RST) {
     	reset_pending = true;
-    	system_raise_alarm(Alarm_ExpanderException);
+    	if(fnc_attached)
+    	    system_raise_alarm(Alarm_ExpanderException);
     	return true;
     }
 
@@ -595,41 +603,84 @@ static void driverReset (void)
 
 static bool fnc_init (const io_stream_t *stream)
 {
-    if(stream == NULL || stream->write == NULL)
+    if(stream == NULL || stream->write == NULL) {
+        fnc_attached = false;
         return false;
+    }
+
+    fnc_attached = false;
 
     int16_t c;
-    volatile uint32_t t1, t2;
-    char buf[50], *p = buf;
+    char line[96];
+    uint_fast8_t idx = 0;
+    bool found = false;
 
-    stream->set_enqueue_rt_handler(stream_buffer_all);
-    stream->write("\n[MSG:RST]\n[EXP:ID]\n");
+    hal.delay_ms(250, NULL);
 
-    while(stream->get_tx_buffer_count());
+    if(stream->reset_read_buffer)
+        stream->reset_read_buffer();
+    else {
+        while(stream->read && stream->read() != -1) {}
+    }
 
-    t1 = hal.get_elapsed_ticks() + 1;
-    do {
-        if((c = stream->read()) != -1) {
-            if(c == FNC_NAK) //??
-                t1 = 0;
-            else if(p) {
-                if(c == '\n') {
-                    *p = '\0';
-                    p = NULL;
-                    t1=0;
-                } else
-                    *p++ = c;
-            }
+    stream->write("[EXP:ID]\n");
+
+    if(stream->get_tx_buffer_count) {
+        uint32_t deadline = hal.get_elapsed_ticks() + 100;
+        while(stream->get_tx_buffer_count()) {
+            if((int32_t)(deadline - hal.get_elapsed_ticks()) <= 0)
+                break;
         }
-        if((t2 = hal.get_elapsed_ticks()) > t1 && t2 - t1 > 5) // something is resetting the systick timer...
-            break;
-    } while(t1 != 0);
+    }
 
-    if(t1 == 0 && (t1 = strncmp(buf, "(EXP,BOARD:Airedale", 19)) == 0) {
+    uint32_t overall_deadline = hal.get_elapsed_ticks() + 3000;
+    uint32_t idle_deadline = hal.get_elapsed_ticks() + 400;
 
-        if((p = strchr(buf + 19, ',')))
-            *p = '\0';
-        strcat(strcpy(expander_id, "FNC_Airedale "), strchr(buf, ' ') + 2);
+    while((int32_t)(overall_deadline - hal.get_elapsed_ticks()) > 0 &&
+          (int32_t)(idle_deadline - hal.get_elapsed_ticks()) > 0) {
+
+        c = stream->read();
+
+        if(c == -1)
+            continue;
+
+        idle_deadline = hal.get_elapsed_ticks() + 400;
+
+        if(c == FNC_ACK || c == FNC_NAK)
+            continue;
+
+        if(c == '\r')
+            continue;
+
+        if(c == '(') {
+            idx = 0;
+            line[idx++] = (char)c;
+            continue;
+        }
+
+        if(c == '\n') {
+            line[idx] = '\0';
+
+            if(idx > 11 && strncmp(line, "(EXP,BOARD:", 11) == 0) {
+                strcpy(expander_id, "FNC_Airedale");
+                found = true;
+                break;
+            }
+
+            idx = 0;
+            continue;
+        }
+
+        if((uint8_t)c < 0x20 || (uint8_t)c > 0x7E) {
+            idx = 0;
+            continue;
+        }
+
+        if(idx && idx < sizeof(line) - 1)
+            line[idx++] = (char)c;
+    }
+
+    if(found) {
 
 #if MPG_ENABLE && FNC_STREAM == MPG_STREAM
         stream_close(stream);
@@ -642,12 +693,33 @@ static bool fnc_init (const io_stream_t *stream)
         expander.write_char = stream->write_char;
         expander.write_n = stream->write_n;
 
+        fnc_attached = true;
+        fnc_retry_scheduled = false;
+
         stream->set_enqueue_rt_handler(fnc_response);
 #endif
-    } else
+    } else {
+        fnc_attached = false;
         stream_close(stream);
+    }
 
-    return t1 == 0;
+    return found;
+}
+
+static void fnc_retry_attach (void *data)
+{
+    fnc_retry_scheduled = false;
+
+    if(expander.write == NULL) {
+        const io_stream_t *stream = stream_open_instance(FNC_STREAM, FNC_BAUD, NULL, "FNC Expander");
+
+        if(stream && fnc_init(stream)) {
+            fnc_register_ports();
+        } else if(!fnc_retry_scheduled) {
+            fnc_retry_scheduled = true;
+            task_add_delayed(fnc_retry_attach, NULL, 2000);
+        }
+    }
 }
 
 static void onEnumeratePins (bool low_level, pin_info_ptr pin_info, void *data)
@@ -705,10 +777,13 @@ static void onReportOptions (bool newopt)
                        : "FNC Expander (N/A)", "0.02");
 }
 
-void fnc_expander_init (void)
+static void fnc_register_ports (void)
 {
     uint_fast8_t idx;
     pin_function_t aux_in_base = Input_Aux0, aux_out_base = Output_Aux0;
+
+    if(fnc_registered)
+        return;
 
     io_digital_t dports = {
         .ports = &digital,
@@ -719,93 +794,103 @@ void fnc_expander_init (void)
         .register_interrupt_handler = register_interrupt_handler
     };
 
+    hal.enumerate_pins(false, get_aux_in_max, &aux_in_base);
+    hal.enumerate_pins(false, get_aux_out_max, &aux_out_base);
+
+    digital.in.n_ports = min(FNC_N_DIN, N_AUX_DIN_MAX - aux_in_base);
+
+    for(idx = 0; idx < digital.in.n_ports; idx++) {
+        aux_in[idx].id = idx;
+        aux_in[idx].pin = idx;
+        aux_in[idx].port = &d_in;
+        aux_in[idx].function = aux_in_base + idx;
+        aux_in[idx].group = PinGroup_AuxInput;
+        aux_in[idx].cap.input = On;
+        aux_in[idx].cap.irq_mode = IRQ_Mode_Edges;
+        aux_in[idx].cap.pull_mode = PullMode_UpDown;
+        aux_in[idx].cap.external = On;
+        aux_in[idx].cap.claimable = On;
+        aux_in[idx].mode.input = On;
+    }
+
+    digital.out.n_ports = min(FNC_N_DOUT, N_AUX_DOUT_MAX - aux_out_base);
+
+    for(idx = 0; idx < digital.out.n_ports; idx++) {
+        aux_out[idx].id = idx;
+        aux_out[idx].pin = idx;
+        aux_out[idx].port = &d_out;
+        aux_out[idx].function = aux_out_base + idx;
+        aux_out[idx].group = PinGroup_AuxOutput;
+        aux_out[idx].cap.output = On;
+        aux_out[idx].cap.external = On;
+        aux_out[idx].cap.claimable = On;
+        aux_out[idx].mode.output = On;
+    }
+
+    ioports_add_digital(&dports);
+
+#if FNC_N_AOUT
+
+    io_analog_t aports = {
+        .ports = &analog,
+        .analog_out = pwm_out,
+        .get_pin_info = analog_get_pin_info,
+        .set_pin_description = analog_set_pin_description
+    };
+
+    pin_function_t aux_aout_base = Output_Analog_Aux0;
+    hal.enumerate_pins(false, get_aux_aout_max, &aux_aout_base);
+
+    aout_pin_base = digital.out.n_ports + 8;
+    analog.out.n_ports = min(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
+
+    for(idx = 0; idx < analog.out.n_ports; idx++) {
+        aux_aout[idx].id = idx;
+        aux_aout[idx].pin = idx;
+        aux_aout[idx].port = &d_out;
+        aux_aout[idx].function = aux_aout_base + idx;
+        aux_aout[idx].group = PinGroup_AuxOutputAnalog;
+        aux_aout[idx].cap.output = On;
+        aux_aout[idx].cap.pwm = On;
+        aux_aout[idx].cap.external = On;
+        aux_aout[idx].cap.claimable = On;
+        aux_aout[idx].mode.output = On;
+    }
+
+    ioports_add_analog(&aports);
+
+#endif // FNC_N_AOUT
+
+    on_enumerate_pins = hal.enumerate_pins;
+    hal.enumerate_pins = onEnumeratePins;
+
+    if(hal.rgb0.out == NULL) {
+        hal.rgb0.out = led_out;
+        hal.rgb0.out_masked = led_out_masked;
+        hal.rgb0.num_devices = 1;
+        hal.rgb0.cap = (rgb_color_t){ .R = 1, .G = 1, .B = 1 };
+    }
+
+#if MPG_ENABLE && FNC_STREAM == MPG_STREAM
+    on_mpg_registered = grbl.on_mpg_registered;
+    grbl.on_mpg_registered = onMpgRegistered;
+#endif
+    fnc_registered = true;
+    task_add_immediate(fnc_config, NULL);
+}
+
+void fnc_expander_init (void)
+{
     on_report_options = grbl.on_report_options;
     grbl.on_report_options = onReportOptions;
 
     if(fnc_init(stream_open_instance(FNC_STREAM, FNC_BAUD, NULL, "FNC Expander"))) {
-
-        hal.enumerate_pins(false, get_aux_in_max, &aux_in_base);
-        hal.enumerate_pins(false, get_aux_out_max, &aux_out_base);
-
-        digital.in.n_ports = max(FNC_N_DIN, N_AUX_DIN_MAX - aux_in_base);
-
-        for(idx = 0; idx < digital.in.n_ports; idx++) {
-            aux_in[idx].id = idx;
-            aux_in[idx].pin = idx;
-            aux_in[idx].port = &d_in;
-            aux_in[idx].function = aux_in_base + idx;
-            aux_in[idx].group = PinGroup_AuxInput;
-            aux_in[idx].cap.input = On;
-            aux_in[idx].cap.irq_mode = IRQ_Mode_Edges;
-            aux_in[idx].cap.pull_mode = PullMode_UpDown;
-            aux_in[idx].cap.external = On;
-            aux_in[idx].cap.claimable = On;
-            aux_in[idx].mode.input = On;
+        fnc_register_ports();
+    } else {
+        if(!fnc_retry_scheduled) {
+            fnc_retry_scheduled = true;
+            task_add_delayed(fnc_retry_attach, NULL, 2000);
         }
-
-        digital.out.n_ports = max(FNC_N_DOUT, N_AUX_DOUT_MAX - aux_out_base);
-
-        for(idx = 0; idx < digital.out.n_ports; idx++) {
-            aux_out[idx].id = idx;
-            aux_out[idx].pin = idx;
-            aux_out[idx].port = &d_out;
-            aux_out[idx].function = aux_out_base + idx;
-            aux_out[idx].group = PinGroup_AuxOutput;
-            aux_out[idx].cap.output = On;
-            aux_out[idx].cap.external = On;
-            aux_out[idx].cap.claimable = On;
-            aux_out[idx].mode.output = On;
-        }
-
-        ioports_add_digital(&dports);
-
-#if FNC_N_AOUT
-
-        io_analog_t aports = {
-            .ports = &analog,
-            .analog_out = pwm_out,
-            .get_pin_info = analog_get_pin_info,
-            .set_pin_description = analog_set_pin_description
-        };
-
-        pin_function_t aux_aout_base = Output_Analog_Aux0;
-        hal.enumerate_pins(false, get_aux_aout_max, &aux_out_base);
-
-        aout_pin_base = digital.out.n_ports + 8;
-        analog.out.n_ports = max(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
-
-        for(idx = 0; idx < analog.out.n_ports; idx++) {
-            aux_aout[idx].id = idx;
-            aux_aout[idx].pin = idx;
-            aux_aout[idx].port = &d_out;
-            aux_aout[idx].function = aux_aout_base + idx;
-            aux_aout[idx].group = PinGroup_AuxOutputAnalog;
-            aux_aout[idx].cap.output = On;
-            aux_aout[idx].cap.pwm = On;
-            aux_aout[idx].cap.external = On;
-            aux_aout[idx].cap.claimable = On;
-            aux_aout[idx].mode.output = On;
-        }
-
-        ioports_add_analog(&aports);
-
-#endif // FNC_N_AOUT
-
-        on_enumerate_pins = hal.enumerate_pins;
-        hal.enumerate_pins = onEnumeratePins;
-
-        if(hal.rgb0.out == NULL) {
-            hal.rgb0.out = led_out;
-            hal.rgb0.out_masked = led_out_masked;
-            hal.rgb0.num_devices = 1;
-            hal.rgb0.cap = (rgb_color_t){ .R = 1, .G = 1, .B = 1 };
-        }
-
-#if MPG_ENABLE && FNC_STREAM == MPG_STREAM
-        on_mpg_registered = grbl.on_mpg_registered;
-        grbl.on_mpg_registered = onMpgRegistered;
-#endif
-        task_run_on_startup(fnc_config, NULL);
     }
 }
 
