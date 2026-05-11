@@ -36,13 +36,13 @@
 #include "grbl/protocol.h"
 #include "grbl/utf8.h"
 
-#define FNC_ACK     0xB2  	// Command accepted character
-#define FNC_NAK     0xB3  	// Command rejected character
-#define FNC_RST     0xB4  	// Expander restarted character
-#define FNC_LOW     0xC4  	// Start of two-character sequence; second is port number
-#define FNC_HIGH    0xC5  	// Start of two-character sequence; second is port number
-#define FNC_PINBASE 0x80  	// Port number offset in second character
-#define FNC_PWMBASE 0x10000	// Offset base for PWM ports
+#define FNC_ACK     0xB2    // Command accepted character
+#define FNC_NAK     0xB3    // Command rejected character
+#define FNC_RST     0xB4    // Expander restarted character
+#define FNC_LOW     0xC4    // Start of two-character sequence; second is port number
+#define FNC_HIGH    0xC5    // Start of two-character sequence; second is port number
+#define FNC_PINBASE 0x80    // Port number offset in second character
+#define FNC_PWMBASE 0x10000 // Offset base for PWM ports
 
 #ifndef FNC_N_AOUT
 #define FNC_N_AOUT 0
@@ -88,9 +88,9 @@ static uint8_t ledcmd[] = { FNC_LOW, FNC_PINBASE + 18, FNC_LOW, FNC_PINBASE + 19
 static uint32_t aout_pin_base;
 static xbar_t aux_aout[FNC_N_AOUT] = {};
 static struct {
-	float value;
-	float min_value;
-	float max_value;
+    float value;
+    float min_value;
+    float max_value;
 } pwm[FNC_N_AOUT] = {};
 static io_ports_data_t analog;
 #endif
@@ -186,7 +186,7 @@ static void digital_out_ll (xbar_t *output, float value)
 
 static bool digital_out_cfg (xbar_t *output, gpio_out_config_t *config, bool persistent)
 {
-    if(output->id == 1) {
+    if(output->id < digital.out.n_ports) {
 
         if(config->inverted != aux_out[output->id].mode.inverted) {
             aux_out[output->id].mode.inverted = config->inverted;
@@ -387,9 +387,9 @@ static ISR_CODE bool ISR_FUNC(fnc_response)(uint8_t c)
     static char prefix = 0;
 
     if(c == FNC_RST) {
-    	reset_pending = true;
-    	system_raise_alarm(Alarm_ExpanderException);
-    	return true;
+        reset_pending = true;
+        system_raise_alarm(Alarm_ExpanderException);
+        return true;
     }
 
     bool claimed = false;
@@ -466,18 +466,18 @@ static float pwm_get_value (xbar_t *output)
 
 static void pwm_out_ll (xbar_t *output, float value)
 {
-	uint8_t buf[4];
+    uint8_t buf[4];
 
-	pwm[output->id].value = constrain(value, pwm[output->id].min_value, pwm[output->id].max_value);
+    pwm[output->id].value = constrain(value, pwm[output->id].min_value, pwm[output->id].max_value);
 
-	uint16_t len = utf32_to_utf8(buf, FNC_PWMBASE | ((output->id + aout_pin_base) << 10) | (uint32_t)(pwm[output->id].value * 10.0f));
-	expander.write_n(buf, len);
+    uint16_t len = utf32_to_utf8(buf, FNC_PWMBASE | ((output->id + aout_pin_base) << 10) | (uint32_t)(pwm[output->id].value * 10.0f));
+    expander.write_n(buf, len);
 }
 
 static bool pwm_out (uint8_t port, float value)
 {
     if(port < analog.out.n_ports)
-    	pwm_out_ll(&aux_aout[port], value);
+        pwm_out_ll(&aux_aout[port], value);
 
     return port < analog.out.n_ports;
 }
@@ -503,7 +503,7 @@ static bool init_pwm (xbar_t *output, pwm_config_t *config, bool persistent)
 static bool analog_set_function (xbar_t *port, pin_function_t function)
 {
     if(port->mode.output)
-    	aux_aout[port->id].id = function;
+        aux_aout[port->id].id = function;
 
     return true;
 }
@@ -516,11 +516,11 @@ static xbar_t *analog_get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Output && port < analog.out.n_ports) {
         memcpy(&pin, &aux_aout[port], sizeof(xbar_t));
-		pin.config = init_pwm;
-		pin.get_value = pwm_get_value;
-	    pin.set_value = pwm_out_ll;
-	    pin.set_function = analog_set_function;
-		info = &pin;
+        pin.config = init_pwm;
+        pin.get_value = pwm_get_value;
+        pin.set_value = pwm_out_ll;
+        pin.set_function = analog_set_function;
+        info = &pin;
     }
 
     return info;
@@ -529,7 +529,7 @@ static xbar_t *analog_get_pin_info (io_port_direction_t dir, uint8_t port)
 static void analog_set_pin_description (io_port_direction_t dir, uint8_t port, const char *description)
 {
     if(dir == Port_Output && port < analog.out.n_ports)
-    	aux_aout[port].description = description;
+        aux_aout[port].description = description;
 }
 
 static void get_aux_aout_max (xbar_t *pin, void *fn)
@@ -590,7 +590,7 @@ static void driverReset (void)
     driver_reset();
 
     if(reset_pending)
-    	task_add_immediate(fnc_config, NULL);
+        task_add_immediate(fnc_config, NULL);
 }
 
 static bool fnc_init (const io_stream_t *stream)
@@ -702,7 +702,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(expander.write
                        ? expander_id
-                       : "FNC Expander (N/A)", "0.02");
+                       : "FNC Expander (N/A)", "0.03");
 }
 
 void fnc_expander_init (void)
@@ -727,7 +727,7 @@ void fnc_expander_init (void)
         hal.enumerate_pins(false, get_aux_in_max, &aux_in_base);
         hal.enumerate_pins(false, get_aux_out_max, &aux_out_base);
 
-        digital.in.n_ports = max(FNC_N_DIN, N_AUX_DIN_MAX - aux_in_base);
+        digital.in.n_ports = min(FNC_N_DIN, N_AUX_DIN_MAX - aux_in_base);
 
         for(idx = 0; idx < digital.in.n_ports; idx++) {
             aux_in[idx].id = idx;
@@ -743,7 +743,7 @@ void fnc_expander_init (void)
             aux_in[idx].mode.input = On;
         }
 
-        digital.out.n_ports = max(FNC_N_DOUT, N_AUX_DOUT_MAX - aux_out_base);
+        digital.out.n_ports = min(FNC_N_DOUT, N_AUX_DOUT_MAX - aux_out_base);
 
         for(idx = 0; idx < digital.out.n_ports; idx++) {
             aux_out[idx].id = idx;
@@ -772,7 +772,7 @@ void fnc_expander_init (void)
         hal.enumerate_pins(false, get_aux_aout_max, &aux_out_base);
 
         aout_pin_base = digital.out.n_ports + 8;
-        analog.out.n_ports = max(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
+        analog.out.n_ports = min(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
 
         for(idx = 0; idx < analog.out.n_ports; idx++) {
             aux_aout[idx].id = idx;
