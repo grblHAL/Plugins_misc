@@ -3,7 +3,7 @@
 
   Part of grblHAL misc. plugins
 
-  Copyright (c) 2024-2025 Terje Io
+  Copyright (c) 2024-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -70,8 +70,11 @@ typedef struct {
     event_setting_t event[N_EVENTS];
 } event_settings_t;
 
+static struct {
+    uint8_t port;
+    char descr[30];
+} event_out[N_EVENTS];
 static uint8_t n_events;
-static uint8_t port[N_EVENTS];
 static io_port_cfg_t d_out;
 static nvs_address_t nvs_address;
 static event_settings_t plugin_settings;
@@ -93,8 +96,8 @@ static void onReset (void)
     uint_fast16_t idx = n_events;
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger && plugin_settings.event[idx].trigger != Event_Alarm)
-            ioport_digital_out(port[idx], 0);
+        if(event_out[--idx].port != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger && plugin_settings.event[idx].trigger != Event_Alarm)
+            ioport_digital_out(event_out[idx].port, 0);
     } while(idx);
 
     driver_reset();
@@ -108,8 +111,8 @@ static void onSpindleProgrammed (spindle_ptrs_t *spindle, spindle_state_t state,
         on_spindle_programmed(spindle, state, rpm, mode);
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
-            ioport_digital_out(port[idx], state.on);
+        if(event_out[--idx].port != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == (spindle->cap.laser ? Event_Laser : Event_Spindle))
+            ioport_digital_out(event_out[idx].port, state.on);
     } while(idx);
 }
 
@@ -121,8 +124,8 @@ static void onSpindleAtSpeed (spindle_ptrs_t *spindle, spindle_state_t state)
         on_spindle_at_speed(spindle, state);
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == Event_SpindleAtSpeed)
-            ioport_digital_out(port[idx], state.on);
+        if(event_out[--idx].port != IOPORT_UNASSIGNED && plugin_settings.event[idx].trigger == Event_SpindleAtSpeed)
+            ioport_digital_out(event_out[idx].port, state.on);
     } while(idx);
 }
 
@@ -133,15 +136,15 @@ static void onCoolantSetState (coolant_state_t state)
     coolant_set_state_(state);
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED)
+        if(event_out[--idx].port != IOPORT_UNASSIGNED)
           switch(plugin_settings.event[idx].trigger) {
 
             case Event_Mist:
-                ioport_digital_out(port[idx], state.mist);
+                ioport_digital_out(event_out[idx].port, state.mist);
                 break;
 
             case Event_Flood:
-                ioport_digital_out(port[idx], state.flood);
+                ioport_digital_out(event_out[idx].port, state.flood);
                 break;
 
             default:
@@ -161,19 +164,19 @@ static void onStateChanged (sys_state_t state)
         last_state = state;
 
         do {
-            if(port[--idx] != IOPORT_UNASSIGNED)
+            if(event_out[--idx].port != IOPORT_UNASSIGNED)
               switch(plugin_settings.event[idx].trigger) {
 
                 case Event_FeedHold:
-                    ioport_digital_out(port[idx], state == STATE_HOLD);
+                    ioport_digital_out(event_out[idx].port, state == STATE_HOLD);
                     break;
 
                 case Event_Alarm:
-                    ioport_digital_out(port[idx], state == STATE_ALARM);
+                    ioport_digital_out(event_out[idx].port, state == STATE_ALARM);
                     break;
 
                 case Event_Motion:
-                    ioport_digital_out(port[idx], !!(state & (STATE_HOMING|STATE_CYCLE|STATE_JOG)));
+                    ioport_digital_out(event_out[idx].port, !!(state & (STATE_HOMING|STATE_CYCLE|STATE_JOG)));
                     break;
 
                 default: break;
@@ -190,15 +193,15 @@ static void signal_out (void *event)
     switch(plugin_settings.event[(uint32_t)event].trigger) {
 
         case Event_OptionalStop:
-            ioport_digital_out(port[(uint32_t)event], sys.flags.optional_stop_disable);
+            ioport_digital_out(event_out[(uint32_t)event].port, sys.flags.optional_stop_disable);
             break;
 
         case Event_SingleStepping:
-            ioport_digital_out(port[(uint32_t)event], sys.flags.single_block);
+            ioport_digital_out(event_out[(uint32_t)event].port, sys.flags.single_block);
             break;
 
         case Event_BlockDelete:
-            ioport_digital_out(port[(uint32_t)event], sys.flags.block_delete_enabled);
+            ioport_digital_out(event_out[(uint32_t)event].port, sys.flags.block_delete_enabled);
             break;
 
         default: break;
@@ -214,7 +217,7 @@ static void onControlSignalsChanged (control_signals_t signals)
         uint_fast16_t idx = n_events;
 
         do {
-            if(port[--idx] != IOPORT_UNASSIGNED)
+            if(event_out[--idx].port != IOPORT_UNASSIGNED)
               switch(plugin_settings.event[idx].trigger) {
 
                   case Event_OptionalStop:
@@ -234,18 +237,16 @@ static void onControlSignalsChanged (control_signals_t signals)
 
 static void register_handlers (void)
 {
-    static char descr[N_EVENTS][30] = {0};
-
     char tmp[30];
     uint_fast16_t idx = n_events;
 
     do {
-        if(port[--idx] != IOPORT_UNASSIGNED) {
+        if(event_out[--idx].port != IOPORT_UNASSIGNED) {
 
             if(plugin_settings.event[idx].trigger == Event_Ignore)
-                sprintf(descr[idx], "P%d", port[idx]);
+                sprintf(event_out[idx].descr, "P%d", event_out[idx].port);
             else
-                sprintf(descr[idx], "P%d <- %s", port[idx], strgetentry(tmp, events, plugin_settings.event[idx].trigger, ','));
+                sprintf(event_out[idx].descr, "P%d <- %s", event_out[idx].port, strgetentry(tmp, events, plugin_settings.event[idx].trigger, ','));
 
             switch(plugin_settings.event[idx].trigger) {
 
@@ -299,7 +300,7 @@ static void register_handlers (void)
             }
         }
 
-        ioport_set_description(Port_Digital, Port_Output, port[idx], descr[idx]);
+        ioport_set_description(Port_Digital, Port_Output, event_out[idx].port, event_out[idx].descr);
 
     } while(idx);
 }
@@ -436,12 +437,18 @@ static void event_out_cfg (void *data)
 {
     if((n_events = min(d_out.n_ports, N_EVENTS))) {
 
+        xbar_t *port;
         uint_fast16_t idx;
+
         for(idx = 0; idx < n_events; idx++) {
-            if(plugin_settings.event[idx].port == IOPORT_UNASSIGNED)
-                port[idx] = IOPORT_UNASSIGNED;
-            else
-                port[idx] = min(plugin_settings.event[idx].port, d_out.port_max);
+            if(plugin_settings.event[idx].port != IOPORT_UNASSIGNED) {
+                plugin_settings.event[idx].port = min(plugin_settings.event[idx].port, d_out.port_max);
+                if((port = d_out.get_info(&d_out, plugin_settings.event[idx].port)) && !port->mode.claimed && strlen(port->description) > 1)
+                    event_out[idx].port = atoi(port->description + 1); // Hack to get P number
+                else
+                    event_out[idx].port = plugin_settings.event[idx].port = IOPORT_UNASSIGNED;
+            } else
+                event_out[idx].port = IOPORT_UNASSIGNED;
         }
 
         register_handlers();
