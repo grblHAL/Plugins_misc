@@ -69,7 +69,8 @@ Dependencies:
 
 Driver and board support for a serial port \(UART\) that is not claimed by a different plugin.
 It implements the [FluidNC Channel I/O protocol](http://wiki.fluidnc.com/en/config/uart_sections#channel-io).   
-Firmware is available for STM32-based breakout boards such as cheap STM32F103 based Red/Bluepills or the ready-made [Airedale I/O Expander](http://wiki.fluidnc.com/en/hardware/official/airedale) board.
+Firmware is available for STM32-based breakout boards such as cheap STM32F103 based Red/Bluepills or the ready-made [Airedale I/O Expander](http://wiki.fluidnc.com/en/hardware/official/airedale) board.  
+The plugin can also be used with the Raspberry [Pico implementation](https://github.com/grblHAL/RP_FNC_IO_Expander) of the protocol, with the W versions passthrough can even be routed to BlueTooth. 
 
 Configuration:
 
@@ -204,5 +205,15 @@ Credits:
 
 Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
+### I2C Bus I/O expanders
+
+Driver code for some I2C based I/O expanders, can be used for new controller designs or added on expansion boards for controllers that provide a I2C header.
+
+[MCP3221](https://ww1.microchip.com/downloads/en/DeviceDoc/20001732E.pdf) (pdf) is a single channel 12-bit AD converter.
+
+[MCP4725](https://www.microchip.com/en-us/product/MCP4725) (pdf) is a single channel 12-bit DA converter.
+
+[PCA9654E](https://www.onsemi.com/products/standard-products/logic/i-o-expanders/pca9654e) is 8 bit of general purpose parallel GPIO expansion. Currently the driver only support outputs.
+
 ---
-2026-01-24
+2026-05-28
