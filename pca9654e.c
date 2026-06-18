@@ -83,7 +83,7 @@ static void digital_out_ll (xbar_t *output, float value)
 
 static bool digital_out_cfg (xbar_t *output, gpio_out_config_t *config, bool persistent)
 {
-    if(output->id == 1) {
+    if(output->id < digital.out.n_ports) {
 
         if(config->inverted != aux_out[output->id].mode.inverted) {
             aux_out[output->id].mode.inverted = config->inverted;

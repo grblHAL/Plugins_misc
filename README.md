@@ -209,11 +209,15 @@ Based on [code](https://github.com/wakass/grlbhal_servo) by @wakass.
 
 Driver code for some I2C based I/O expanders, can be used for new controller designs or added on expansion boards for controllers that provide a I2C header.
 
-[MCP3221](https://ww1.microchip.com/downloads/en/DeviceDoc/20001732E.pdf) (pdf) is a single channel 12-bit AD converter.
+[MCP3221](https://ww1.microchip.com/downloads/en/DeviceDoc/20001732E.pdf) (pdf) is a single channel 12-bit I2C AD converter.
 
-[MCP4725](https://www.microchip.com/en-us/product/MCP4725) (pdf) is a single channel 12-bit DA converter.
+[MCP4725](https://www.microchip.com/en-us/product/MCP4725) (pdf) is a single channel 12-bit I2C DA converter.  
+An [expansion board](https://www.adafruit.com/product/935) is available from Adafruit.
 
-[PCA9654E](https://www.onsemi.com/products/standard-products/logic/i-o-expanders/pca9654e) is 8 bit of general purpose parallel GPIO expansion. Currently the driver only support outputs.
+[MCP23017](https://ww1.microchip.com/downloads/en/devicedoc/20001952c.pdf) (pdf) is a 16 channel I2C GPIO expander, configurable as 8 inputs and outputs, 16 outputs or 16 inputs.  
+An [expansion board](https://www.adafruit.com/product/5346) is available from Adafruit.
+
+[PCA9654E](https://www.onsemi.com/products/standard-products/logic/i-o-expanders/pca9654e) is a 8 channel I2C GPIO expander. Currently the driver only support outputs.
 
 ---
-2026-05-28
+2026-06-10
