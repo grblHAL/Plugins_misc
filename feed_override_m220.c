@@ -67,6 +67,7 @@ static status_code_t mcode_validate (parser_block_t *gc_block)
                 state = Status_BadNumberFormat;
         }
 
+        gc_block->user_mcode_sync = On;
         gc_block->words.b = gc_block->words.r = gc_block->words.s = Off;
     }
 
@@ -102,7 +103,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Feed override", "0.02");
+        report_plugin("Feed override", "0.03");
 }
 
 void feed_override_init (void)
