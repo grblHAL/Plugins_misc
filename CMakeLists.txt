@@ -8,6 +8,7 @@ target_sources(misc_plugins INTERFACE
  ${CMAKE_CURRENT_LIST_DIR}/fnc_expander.c
  ${CMAKE_CURRENT_LIST_DIR}/hc595.c
  ${CMAKE_CURRENT_LIST_DIR}/homing_pulloff.c
+ ${CMAKE_CURRENT_LIST_DIR}/mcp23017.c
  ${CMAKE_CURRENT_LIST_DIR}/pca9654e.c
  ${CMAKE_CURRENT_LIST_DIR}/mcp3221.c
  ${CMAKE_CURRENT_LIST_DIR}/mcp4725.c
