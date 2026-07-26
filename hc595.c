@@ -38,7 +38,7 @@ static union {
     uint8_t n[4];
 } reg = {0};
 
-static io_ports_data_t digital;
+static io_ports_data_t digital = { .external = true };
 static xbar_t aux_out[HC595_BITS] = {};
 static enumerate_pins_ptr on_enumerate_pins;
 
@@ -140,6 +140,7 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Output && port < digital.out.n_ports) {
         memcpy(&pin, &aux_out[port], sizeof(xbar_t));
+        pin.pin += digital.out.pin_base;
         pin.ports_id = &digital;
         pin.get_value = digital_out_state;
         pin.set_value = digital_out_ll;
@@ -184,39 +185,44 @@ static void get_aux_max (xbar_t *pin, void *fn)
 
 void hc595_init (void)
 {
-    uint_fast8_t idx;
-    pin_function_t aux_out_base = Output_Aux0;
+    static bool ok = false;
 
-    io_digital_t dports = {
-        .ports = &digital,
-        .digital_out = digital_out,
-        .get_pin_info = get_pin_info,
-        .set_pin_description = set_pin_description,
-    };
+    if(!ok) {
 
-    if(!spi_start(&dev).ok)
-        return;
+        uint_fast8_t idx;
+        pin_function_t aux_out_base = Output_Aux0;
 
-    hal.enumerate_pins(false, get_aux_max, &aux_out_base);
+        io_digital_t dports = {
+            .ports = &digital,
+            .digital_out = digital_out,
+            .get_pin_info = get_pin_info,
+            .set_pin_description = set_pin_description,
+        };
 
-    digital.out.n_ports = sizeof(aux_out) / sizeof(xbar_t);
+        if(!spi_start(&dev).ok)
+            return;
 
-    for(idx = 0; idx < digital.out.n_ports; idx++) {
-        aux_out[idx].pin = idx;
-        aux_out[idx].port = &reg.value;
-        aux_out[idx].id = idx;
-        aux_out[idx].function = aux_out_base + idx;
-        aux_out[idx].group = PinGroup_AuxOutput;
-        aux_out[idx].cap.output = On;
-        aux_out[idx].cap.external = On;
-        aux_out[idx].cap.claimable = On;
-        aux_out[idx].mode.output = On;
-    }
+        hal.enumerate_pins(false, get_aux_max, &aux_out_base);
 
-    if(ioports_add_digital(&dports)) {
-        on_enumerate_pins = hal.enumerate_pins;
-        hal.enumerate_pins = onEnumeratePins;
-        // TODO: set CS pin description
+        digital.out.n_ports = sizeof(aux_out) / sizeof(xbar_t);
+
+        for(idx = 0; idx < digital.out.n_ports; idx++) {
+            aux_out[idx].pin = idx;
+            aux_out[idx].port = &reg.value;
+            aux_out[idx].id = idx;
+            aux_out[idx].function = aux_out_base + idx;
+            aux_out[idx].group = PinGroup_AuxOutput;
+            aux_out[idx].cap.output = On;
+            aux_out[idx].cap.external = On;
+            aux_out[idx].cap.claimable = On;
+            aux_out[idx].mode.output = On;
+        }
+
+        if((ok = ioports_add_digital(&dports))) {
+            on_enumerate_pins = hal.enumerate_pins;
+            hal.enumerate_pins = onEnumeratePins;
+            // TODO: set CS pin description
+        }
     }
 }
 

@@ -4,7 +4,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2018-2025 Terje Io
+  Copyright (c) 2018-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -37,7 +37,7 @@
 #define RW_CONFIG    3
 
 static uint8_t pca9654_out = 0;
-static io_ports_data_t digital;
+static io_ports_data_t digital = { .external = true };
 static xbar_t aux_out[8] = {};
 static enumerate_pins_ptr on_enumerate_pins;
 
@@ -131,6 +131,7 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Output && port < digital.out.n_ports) {
         memcpy(&pin, &aux_out[port], sizeof(xbar_t));
+        pin.pin += digital.out.pin_base;
         pin.get_value = digital_out_state;
         pin.set_value = digital_out_ll;
         pin.set_function = set_pin_function;
@@ -174,7 +175,9 @@ static void get_aux_max (xbar_t *pin, void *fn)
 
 void pca9654e_init (void)
 {
-    if(i2c_start().ok && i2c_probe(PCA9654E_ADDRESS)) {
+    static bool ok = false;
+
+    if(!ok && i2c_start().ok && i2c_probe(PCA9654E_ADDRESS)) {
 
         uint_fast8_t idx;
         uint8_t cmd[2];
@@ -215,7 +218,7 @@ void pca9654e_init (void)
             aux_out[idx].mode.output = On;
         }
 
-        ioports_add_digital(&dports);
+        ok = ioports_add_digital(&dports);
 
         on_enumerate_pins = hal.enumerate_pins;
         hal.enumerate_pins = onEnumeratePins;

@@ -3,7 +3,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2025 Terje Io
+  Copyright (c) 2025-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -32,7 +32,7 @@
 
 static float a_out;
 static enumerate_pins_ptr on_enumerate_pins;
-static io_ports_data_t analog = {};
+static io_ports_data_t analog = { .external = true };
 
 static xbar_t mcp4725 = {
     .id = 0,
@@ -99,6 +99,7 @@ static xbar_t *mcp4725_get_pin_info (io_port_direction_t dir, uint8_t port)
     memcpy(&pin, &mcp4725, sizeof(xbar_t));
 
     if(dir == Port_Output && port < analog.out.n_ports) {
+        pin.pin += analog.out.pin_base;
         pin.get_value = mcp4725_out_state;
         pin.set_value = mcp4725_set_value;
         pin.set_function = set_pin_function;
@@ -139,7 +140,9 @@ static void get_next_port (xbar_t *pin, void *fn)
 
 void mcp4725_init (void)
 {
-    if(i2c_start().ok && i2c_probe(MCP4725_ADDRESS)) {
+    static bool ok = false;
+
+    if(!ok && i2c_start().ok && i2c_probe(MCP4725_ADDRESS)) {
 
         io_analog_t ports = {
             .ports = &analog,
@@ -169,7 +172,7 @@ void mcp4725_init (void)
         hal.enumerate_pins(false, get_next_port, &mcp4725.function);
 
         analog.out.n_ports = 1;
-        ioports_add_analog(&ports);
+        ok = ioports_add_analog(&ports);
     }
 
     on_enumerate_pins = hal.enumerate_pins;

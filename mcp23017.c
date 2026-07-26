@@ -122,7 +122,7 @@ typedef union {
 
 */
 
-static io_ports_data_t digital;
+static io_ports_data_t digital = { .external = true };
 
 static enumerate_pins_ptr on_enumerate_pins;
 
@@ -541,7 +541,7 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Input && port < digital.in.n_ports) {
         memcpy(&pin, &aux_in[port], sizeof(xbar_t));
-        pin.pin += digital.in.n_start;
+        pin.pin += digital.in.pin_base;
         pin.get_value = digital_in_state;
         pin.set_function = set_pin_function;
         pin.config = digital_in_cfg;
@@ -554,6 +554,7 @@ static xbar_t *get_pin_info (io_port_direction_t dir, uint8_t port)
 
     if(dir == Port_Output && port < digital.out.n_ports) {
         memcpy(&pin, &aux_out[port], sizeof(xbar_t));
+        pin.pin += digital.out.pin_base;
         pin.get_value = digital_out_state;
         pin.set_value = digital_out_ll;
         pin.set_function = set_pin_function;
@@ -623,7 +624,9 @@ static void onEnumeratePins (bool low_level, pin_info_ptr pin_info, void *data)
 
 void mcp23017_init (void)
 {
-    if(i2c_start().ok && i2c_probe(MCP23017_ADDRESS)) {
+    static bool ok = false;
+
+    if(!ok && i2c_start().ok && i2c_probe(MCP23017_ADDRESS)) {
 
         uint_fast8_t idx;
         iocon_t iocon = {
@@ -749,7 +752,7 @@ void mcp23017_init (void)
 
 #endif
 
-        ioports_add_digital(&dports);
+        ok = ioports_add_digital(&dports);
 
         on_enumerate_pins = hal.enumerate_pins;
         hal.enumerate_pins = onEnumeratePins;
