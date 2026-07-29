@@ -119,7 +119,7 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
 
         if(gc_block->words.s) {
 #ifdef DEBUGOUT
-            debug_print("Setting servo position");
+            debug_printf("Setting servo position");
 #endif
             pwm_servo_set_angle(servo, gc_block->values.s);
         } else {
@@ -128,7 +128,7 @@ static void mcode_execute (uint_fast16_t state, parser_block_t *gc_block)
             if (value >= 0.0f) {
                 char buf[40];
 #ifdef DEBUGOUT
-                debug_print("[Servo position: %5.2f degrees]",  value);
+                debug_printf("[Servo position: %5.2f degrees]",  value);
 #endif
                 // TODO: check Marlin format?
                 strcpy(buf, "[Servo ");

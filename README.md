@@ -69,7 +69,8 @@ Dependencies:
 
 Driver and board support for a serial port \(UART\) that is not claimed by a different plugin.
 It implements the [FluidNC Channel I/O protocol](http://wiki.fluidnc.com/en/config/uart_sections#channel-io).   
-Firmware is available for STM32-based breakout boards such as cheap STM32F103 based Red/Bluepills or the ready-made [Airedale I/O Expander](http://wiki.fluidnc.com/en/hardware/official/airedale) board.  
+Firmware is available for STM32-based breakout boards such as cheap STM32F103 based Red/Bluepills or the ready-made [Airedale I/O Expander](http://wiki.fluidnc.com/en/hardware/official/airedale) board.
+A second source of this design is made by [PiBot](https://www.pibot.com/cnc-laser-electronics/pibot-stm32-io-expander-for-fluidnc-v4).  
 The plugin can also be used with the Raspberry [Pico implementation](https://github.com/grblHAL/RP_FNC_IO_Expander) of the protocol, with the W versions passthrough can even be routed to BlueTooth. 
 
 Configuration:

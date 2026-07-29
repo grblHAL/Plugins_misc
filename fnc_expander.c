@@ -33,6 +33,7 @@
 #include <math.h>
 
 #include "grbl/task.h"
+#include "grbl/platform.h"
 #include "grbl/protocol.h"
 #include "grbl/utf8.h"
 
@@ -488,18 +489,21 @@ static bool init_pwm (xbar_t *output, pwm_config_t *config, bool persistent)
 {
     char buf[40];
 
-    sprintf(buf, "[EXP:io.%d=pwm,frequency=%ld]\n", output->id + aout_pin_base, (uint32_t)config->freq_hz);
-    expander.write(buf);
+    if(expander.write) {
 
-    pwm[output->id].min_value = config->min_value;
-    pwm[output->id].max_value = config->max_value;
+        sprintf(buf, "[EXP:io.%d=pwm,frequency=" UINT32FMT "]\n", output->id + aout_pin_base, (uint32_t)config->freq_hz);
+        expander.write(buf);
 
-    aux_aout[output->id].mode.pwm = !config->servo_mode;
-    aux_aout[output->id].mode.servo_pwm = config->servo_mode;
+        pwm[output->id].min_value = config->min_value;
+        pwm[output->id].max_value = config->max_value;
 
-    pwm_out(output->id, config->min_value);
+        aux_aout[output->id].mode.pwm = !config->servo_mode;
+        aux_aout[output->id].mode.servo_pwm = config->servo_mode;
 
-    return true;
+        pwm_out(output->id, config->min_value);
+    }
+
+    return !!expander.write;
 }
 
 static bool analog_set_function (xbar_t *port, pin_function_t function)
@@ -705,7 +709,7 @@ static void onReportOptions (bool newopt)
     if(!newopt)
         report_plugin(expander.write
                        ? expander_id
-                       : "FNC Expander (N/A)", "0.04");
+                       : "FNC Expander (N/A)", "0.05");
 }
 
 void fnc_expander_init (void)
@@ -730,7 +734,7 @@ void fnc_expander_init (void)
         hal.enumerate_pins(false, get_aux_in_max, &aux_in_base);
         hal.enumerate_pins(false, get_aux_out_max, &aux_out_base);
 
-        digital.in.n_ports = min(FNC_N_DIN, N_AUX_DIN_MAX - aux_in_base);
+        digital.in.n_ports = min(FNC_N_DIN, N_AUX_DIN_MAX - (aux_in_base - Input_Aux0));
 
         for(idx = 0; idx < digital.in.n_ports; idx++) {
             aux_in[idx].id = idx;
@@ -746,7 +750,7 @@ void fnc_expander_init (void)
             aux_in[idx].mode.input = On;
         }
 
-        digital.out.n_ports = min(FNC_N_DOUT, N_AUX_DOUT_MAX - aux_out_base);
+        digital.out.n_ports = min(FNC_N_DOUT, N_AUX_DOUT_MAX - (aux_out_base - Output_Aux0));
 
         for(idx = 0; idx < digital.out.n_ports; idx++) {
             aux_out[idx].id = idx;
@@ -775,7 +779,7 @@ void fnc_expander_init (void)
         hal.enumerate_pins(false, get_aux_aout_max, &aux_out_base);
 
         aout_pin_base = digital.out.n_ports + 8;
-        analog.out.n_ports = min(FNC_N_AOUT, N_AUX_AOUT_MAX - aux_aout_base);
+        analog.out.n_ports = min(FNC_N_AOUT, N_AUX_AOUT_MAX - (aux_aout_base - Output_Analog_Aux0));
 
         for(idx = 0; idx < analog.out.n_ports; idx++) {
             aux_aout[idx].id = idx;
