@@ -114,8 +114,8 @@ static bool writeTools (tool_data_t *tool_data)
         uint_fast16_t idx, axis;
 
         for(idx = 1; idx < n_pockets; idx++) {
-            if(pockets[idx].tool.tool_id >= 0) {
-                sprintf(buf, "P%d T%d ", (uint16_t)pockets[idx].pocket_id, (uint16_t)pockets[idx].tool.tool_id);
+            if(pockets[idx].pocket_id > 0) {
+                sprintf(buf, "T%d P%d ", (uint16_t)pockets[idx].tool.tool_id, (uint16_t)pockets[idx].pocket_id);
                 for(axis = 0; axis < N_AXIS; axis++) {
                     if(pockets[idx].tool.offset.values[axis] != 0.0f) {
                         sprintf(tmp, "%s%-.3f ", axis_letter[axis], pockets[idx].tool.offset.values[axis]);
@@ -126,6 +126,20 @@ static bool writeTools (tool_data_t *tool_data)
                     sprintf(tmp, "D%-.3f ", pockets[idx].tool.radius * 2.0f);
                     strcat(buf, tmp);
                 }
+#if LATHE_UVW_OPTION
+                if(pockets[idx].tool.front_angle != 0.0f) {
+                    sprintf(tmp, "I%-.3f ", pockets[idx].tool.front_angle);
+                    strcat(buf, tmp);
+                }
+                if(pockets[idx].tool.back_angle != 0.0f) {
+                    sprintf(tmp, "J%-.3f ", pockets[idx].tool.back_angle);
+                    strcat(buf, tmp);
+                }
+                if(pockets[idx].tool.orientation > 0) {
+                    sprintf(tmp, "Q%d ", (uint16_t)pockets[idx].tool.orientation);
+                    strcat(buf, tmp);
+                }
+#endif
                 if(*pockets[idx].name)
                     sprintf(strchr(buf, '\0'), "; %s", pockets[idx].name);
                 strcat(buf, "\n");
@@ -145,6 +159,10 @@ static bool clearTools (void)
 
     for(idx = 0; idx < n_pockets; idx++) {
         pockets[idx].tool.radius = 0.0f;
+#if LATHE_UVW_OPTION
+        pockets[idx].tool.orientation = ToolPos_Undefined;
+        pockets[idx].tool.front_angle = pockets[idx].tool.back_angle = 0.0f;
+#endif
         memset(&pockets[idx].tool.offset, 0, sizeof(coord_data_t));
         if(!loaded) {
             pockets[idx].pocket_id = -1;
@@ -168,7 +186,7 @@ static status_code_t load_tools (sys_state_t state, char *args)
 
         while(vfs_read(&c, 1, 1, file) == 1) {
             if(c == ASCII_CR || c == ASCII_LF) {
-                if(*buf) {
+                if(*buf && *buf != ';') {
                     *buf = '\0';
                     n_tools++;
                 }
@@ -179,7 +197,7 @@ static status_code_t load_tools (sys_state_t state, char *args)
         if(n_tools && (n_tools + 1 > n_pockets || pockets == &pocket0)) {
             if(pockets != &pocket0)
                 free(pockets);
-            if((pockets = malloc((n_tools + 1) * sizeof(tool_pocket_t))))
+            if((pockets = calloc(sizeof(tool_pocket_t), (n_tools + 1))))
                 n_pockets = n_tools + 1;
             else
                 n_pockets = 1;
@@ -222,8 +240,12 @@ static status_code_t load_tools (sys_state_t state, char *args)
                                case 'P':
                                    {
                                        uint32_t pocket_id;
-                                       if((status = read_uint(param, &cc, &pocket_id)) == Status_OK)
-                                           pocket.pocket_id = (pocket_id_t)pocket_id;
+                                       if((status = read_uint(param, &cc, &pocket_id)) == Status_OK) {
+                                           if(pocket_id > 0 && pocket_id <= 1000)
+                                               pocket.pocket_id = (pocket_id_t)pocket_id;
+                                           else
+                                               status = Status_GcodeValueOutOfRange;
+                                       }
                                    }
                                    break;
 
@@ -277,7 +299,29 @@ static status_code_t load_tools (sys_state_t state, char *args)
                                    else
                                        pocket.tool.radius /= 2.0f;
                                    break;
+#if LATHE_UVW_OPTION
 
+                               case 'I':
+                                   if(!read_float(param, &cc, &pocket.tool.front_angle))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+
+                               case 'J':
+                                   if(!read_float(param, &cc, &pocket.tool.back_angle))
+                                       status = Status_GcodeValueOutOfRange;
+                                   break;
+
+                               case 'Q':
+                                   {
+                                       uint32_t orientation;
+                                       if((status = read_uint(param, &cc, &orientation)) == Status_OK) {
+                                           if(orientation <= 9)
+                                               pocket.tool.orientation = (tool_orientation_t)orientation;
+                                           else
+                                               status = Status_GcodeValueOutOfRange;
+                                       }
+                                   }
+#endif
                                case ';':
                                    strncpy(pocket.name, param + 1, sizeof(pocket.name) - 1);
                                    while((param = strtok(NULL, " "))) {
@@ -377,7 +421,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Tool table", "0.03");
+        report_plugin("Tool table", "0.04");
 }
 
 void tooltable_init (void)
