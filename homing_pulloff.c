@@ -32,7 +32,7 @@ typedef struct {
 static nvs_address_t nvs_address;
 static plugin_settings_t homing;
 static on_report_options_ptr on_report_options;
-static settings_changed_ptr settings_changed;
+static settings_changed_ptr on_settings_changed;
 
 static status_code_t set_axis_setting (setting_id_t setting, float value)
 {
@@ -128,7 +128,7 @@ static void onSettingsChanged (settings_t *settings, settings_changed_flags_t ch
         pulloff = settings->homing.pulloff;
     }
 
-    settings_changed(settings, changed);
+    on_settings_changed(settings, changed);
 }
 
 static void on_report_my_options (bool newopt)
@@ -153,8 +153,8 @@ void homing_pulloff_init (void)
 
     if((nvs_address = nvs_alloc(sizeof(plugin_settings_t)))) {
 
-        settings_changed = hal.settings_changed;
-        hal.settings_changed = onSettingsChanged;
+        on_settings_changed = grbl.on_settings_changed;
+        grbl.on_settings_changed = onSettingsChanged;
 
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = on_report_my_options;
