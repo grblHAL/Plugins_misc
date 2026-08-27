@@ -3,7 +3,7 @@
 
   Part of grblHAL misc. plugins
 
-  Copyright (c) 2024 Terje Io
+  Copyright (c) 2024-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -84,13 +84,63 @@ static void plugin_settings_save (void)
 {
     hal.nvs.memcpy_to_nvs(nvs_address, (uint8_t *)&homing, sizeof(plugin_settings_t), true);
 }
+#define DEFAULT_X_HOMING_PULLOFF 12.0f
 
 static void plugin_settings_restore (void)
 {
     uint_fast8_t idx = N_AXIS;
 
     do {
-        homing.pulloff.values[--idx] = settings.homing.pulloff;
+        switch(--idx) {
+#if defined DEFAULT_X_HOMING_PULLOFF
+            case X_AXIS:
+                homing.pulloff.values[X_AXIS] = DEFAULT_X_HOMING_PULLOFF;
+                break;
+#endif
+#if defined DEFAULT_Y_HOMING_PULLOFF
+            case Y_AXIS:
+                homing.pulloff.values[Y_AXIS] = DEFAULT_Y_HOMING_PULLOFF;
+                break;
+#endif
+#if defined DEFAULT_Z_HOMING_PULLOFF
+            case Z_AXIS:
+                homing.pulloff.values[Z_AXIS] = DEFAULT_Z_HOMING_PULLOFF;
+                break;
+#endif
+#if defined A_AXIS && defined DEFAULT_A_HOMING_PULLOFF
+            case A_AXIS:
+                homing.pulloff.values[A_AXIS] = DEFAULT_A_HOMING_PULLOFF;
+                break;
+#endif
+#if defined B_AXIS && defined DEFAULT_B_HOMING_PULLOFF
+            case B_AXIS:
+                homing.pulloff.values[B_AXIS] = DEFAULT_B_HOMING_PULLOFF;
+                break;
+#endif
+#if defined C_AXIS && defined DEFAULT_C_HOMING_PULLOFF
+            case C_AXIS:
+                homing.pulloff.values[C_AXIS] = DEFAULT_C_HOMING_PULLOFF;
+                break;
+#endif
+#if defined U_AXIS && defined DEFAULT_U_HOMING_PULLOFF
+            case U_AXIS:
+                homing.pulloff.values[U_AXIS] = DEFAULT_U_HOMING_PULLOFF;
+                break;
+#endif
+#if defined V_AXIS && defined DEFAULT_V_HOMING_PULLOFF
+            case V_AXIS:
+                homing.pulloff.values[V_AXIS] = DEFAULT_V_HOMING_PULLOFF;
+                break;
+#endif
+#if defined W_AXIS && defined DEFAULT_W_HOMING_PULLOFF
+            case W_AXIS:
+                homing.pulloff.values[W_AXIS] = DEFAULT_W_HOMING_PULLOFF;
+                break;
+#endif
+            default:
+                homing.pulloff.values[idx] = settings.homing.pulloff;
+                break;
+        }
     } while(idx);
 
     limits_homing_pulloff(&homing.pulloff);
@@ -136,7 +186,7 @@ static void on_report_my_options (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Homing pulloff", "0.01");
+        report_plugin("Homing pulloff", "0.02");
 }
 
 void homing_pulloff_init (void)
@@ -151,15 +201,13 @@ void homing_pulloff_init (void)
         .restore = plugin_settings_restore
     };
 
-    if((nvs_address = nvs_alloc(sizeof(plugin_settings_t)))) {
+    if((nvs_address = nvs_alloc(sizeof(plugin_settings_t))) && settings_register(&setting_details)) {
 
         on_settings_changed = grbl.on_settings_changed;
         grbl.on_settings_changed = onSettingsChanged;
 
         on_report_options = grbl.on_report_options;
         grbl.on_report_options = on_report_my_options;
-
-        settings_register(&setting_details);
     }
 }
 
