@@ -409,12 +409,15 @@ static void event_settings_load (void)
 
 static bool event_settings_iterator (const setting_detail_t *setting, setting_output_ptr callback, void *data)
 {
+    bool ok = true;
     uint_fast16_t idx;
 
-    for(idx = 0; idx < n_events; idx++)
-        callback(setting, idx, data);
+    for(idx = 0; idx < n_events; idx++) {
+        if(!(ok = callback(setting, idx, data)))
+            break;
+    }
 
-    return true;
+    return ok;
 }
 
 static setting_id_t event_settings_normalize (setting_id_t id)
@@ -422,7 +425,7 @@ static setting_id_t event_settings_normalize (setting_id_t id)
     return (id > Setting_ActionBase && id <= Setting_Action9) ||
             (id > Setting_ActionPortBase && id <= Setting_ActionPort9)
               ? (setting_id_t)(id - (id % 10))
-              : id;
+              : (setting_id_t)0;
 }
 
 static void onReportOptions (bool newopt)
@@ -430,7 +433,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.13");
+        report_plugin("Events plugin", "0.14");
 }
 
 static void event_out_cfg (void *data)
