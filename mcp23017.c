@@ -176,7 +176,7 @@ static bool digital_out_cfg (xbar_t *output, gpio_out_config_t *config, bool per
 
         if(config->inverted != aux_out[output->id].mode.inverted) {
             aux_out[output->id].mode.inverted = config->inverted;
-            digital_out_ll(output, (float)(!!(d_out & (1 << output->id))));
+            digital_out_ll(output, (float)(!(d_out & (1 << output->id)) ^ config->inverted));
         }
 
         // Open drain not supported
