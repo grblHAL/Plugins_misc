@@ -25,7 +25,7 @@
 
 #include "driver.h"
 
-#if PROBE_ENABLE == 2 && NGC_PARAMETERS_ENABLE
+#if PROBE_ENABLE == 2
 
 #include "grbl/hal.h"
 #include "grbl/task.h"
@@ -238,4 +238,4 @@ void probe_select_init (void)
         task_run_on_startup(report_warning, "Probe relay plugin failed to initialize!");
 }
 
-#endif // PROBE_ENABLE == 2 && NGC_PARAMETERS_ENABLE
+#endif // PROBE_ENABLE == 2

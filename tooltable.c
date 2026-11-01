@@ -39,6 +39,7 @@
 #include "grbl/gcode.h"
 #include "grbl/core_handlers.h"
 #include "grbl/state_machine.h"
+#include "grbl/task.h"
 
 static bool loaded = false;
 static uint32_t n_pockets = 1;
@@ -97,7 +98,7 @@ static tool_table_entry_t *getToolByIdx (uint32_t idx)
     return &tool;
 }
 
-static bool writeTools (tool_data_t *tool_data)
+static bool writeTools (tool_data_t *tool_data, bool persist)
 {
     bool ok;
     tool_pocket_t *pocket;
@@ -108,7 +109,7 @@ static bool writeTools (tool_data_t *tool_data)
             memcpy(&pocket->tool, tool_data, sizeof(tool_data_t));
     }
 
-    if(ok && (ok = !!(file = vfs_open(filename, "w")))) {
+    if(ok && persist && (ok = !!(file = vfs_open(filename, "w")))) {
 
         char buf[400], tmp[20];
         uint_fast16_t idx, axis;
@@ -375,12 +376,23 @@ static status_code_t load_tools (sys_state_t state, char *args)
     return status == Status_OK ? Status_OK : Status_FileReadError;
 }
 
-static void loadTools (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
+static void try_load_tools (void *data)
 {
-    load_tools(state_get(), filename);
+    vfs_stat_t st;
 
+    if(vfs_stat(filename, &st) == 0)
+        load_tools(state_get(), filename);
+}
+
+static void onMount (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
+{
     if(on_vfs_mount)
         on_vfs_mount(path, fs, mode);
+
+    if(sys.driver_started)
+        try_load_tools(NULL);
+    else
+        task_run_on_startup(try_load_tools, NULL);
 }
 
 static status_code_t reloadTools (void)
@@ -406,7 +418,7 @@ static void onToolChanged (tool_data_t *tool)
         if((from = get_pocket(tool->tool_id)) && (to = get_pocket(current_tool))) {
             to->pocket_id = from->pocket_id;
             from->pocket_id = -1; // ??
-            writeTools(&to->tool);
+            writeTools(&to->tool, true);
         }
     }
 
@@ -436,7 +448,7 @@ void tooltable_init (void)
     };
 
     on_vfs_mount = vfs.on_mount;
-    vfs.on_mount = loadTools;
+    vfs.on_mount = onMount;
 
     tool_select = hal.tool.select;
     hal.tool.select = onToolSelect;
