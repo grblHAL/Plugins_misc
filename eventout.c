@@ -193,7 +193,7 @@ static void signal_out (void *event)
     switch(plugin_settings.event[(uint32_t)event].trigger) {
 
         case Event_OptionalStop:
-            ioport_digital_out(event_out[(uint32_t)event].port, sys.flags.optional_stop_disable);
+            ioport_digital_out(event_out[(uint32_t)event].port, sys.flags.optional_stop_enable);
             break;
 
         case Event_SingleStepping:
@@ -210,7 +210,7 @@ static void signal_out (void *event)
 
 static void onControlSignalsChanged (control_signals_t signals)
 {
-    static const control_signals_t check = (control_signals_t){ .single_block = On, .stop_disable = On, .block_delete = On };
+    static const control_signals_t check = (control_signals_t){ .single_block = On, .stop_enable = On, .block_delete = On };
 
     if(signals.bits & check.bits) {
 
@@ -433,7 +433,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("Events plugin", "0.14");
+        report_plugin("Events plugin", "0.15");
 }
 
 static void event_out_cfg (void *data)
