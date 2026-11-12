@@ -148,7 +148,7 @@ static void onReportOptions (bool newopt)
     on_report_options(newopt);
 
     if(!newopt)
-        report_plugin("PWM servo", "0.04");
+        report_plugin("PWM servo", "0.05");
 }
 
 static bool init_servo_default (servo_t* servo)
@@ -169,7 +169,7 @@ static bool servo_attach (xbar_t *pwm_pin, uint8_t port, void *data)
         "PWM Servo 3"
     };
 
-    if(n_servos < N_PWM_SERVOS && !pwm_pin->cap.servo_pwm) {
+    if(n_servos < N_PWM_SERVOS && !pwm_pin->cap.servo_pwm && !pwm_pin->mode.claimed) {
 
         servos[n_servos].port = port;
 
@@ -189,6 +189,13 @@ static bool servo_attach (xbar_t *pwm_pin, uint8_t port, void *data)
 
             if(pwm_pin->config(pwm_pin, &config, false)) {
 
+                if(!grbl.user_mcode.check) {
+                    memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
+                    grbl.user_mcode.check = mcode_check;
+                    grbl.user_mcode.validate = mcode_validate;
+                    grbl.user_mcode.execute = mcode_execute;
+                }
+
                 if(pwm_pin->get_value)
                     memcpy(&servos[n_servos].xport, pwm_pin, sizeof(xbar_t));
 
@@ -204,12 +211,6 @@ static bool servo_attach (xbar_t *pwm_pin, uint8_t port, void *data)
 
 void pwm_servo_init (void)
 {
-    memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
-
-    grbl.user_mcode.check = mcode_check;
-    grbl.user_mcode.validate = mcode_validate;
-    grbl.user_mcode.execute = mcode_execute;
-
     ioports_enumerate(Port_Analog, Port_Output, (pin_cap_t){ .pwm = On, .claimable = On }, servo_attach, NULL);
 
     on_report_options = grbl.on_report_options;
