@@ -189,7 +189,7 @@ static bool servo_attach (xbar_t *pwm_pin, uint8_t port, void *data)
 
             if(pwm_pin->config(pwm_pin, &config, false)) {
 
-                if(!grbl.user_mcode.check) {
+                if(!n_servos) {
                     memcpy(&user_mcode, &grbl.user_mcode, sizeof(user_mcode_ptrs_t));
                     grbl.user_mcode.check = mcode_check;
                     grbl.user_mcode.validate = mcode_validate;
